@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(node -e \"require\\('./models/HotelMakkah'\\); require\\('./models/HotelMadinah'\\); require\\('./models/Airline'\\); require\\('./models/Package'\\); require\\('./routes/packages'\\); require\\('./routes/hotelsMakkah'\\); require\\('./routes/hotelsMadinah'\\); require\\('./routes/airlines'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./utils/allotment'\\); require\\('./routes/packages'\\); require\\('./routes/airlines'\\); require\\('./routes/hotelsMakkah'\\); require\\('./routes/hotelsMadinah'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Package'\\); require\\('./routes/packages'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Package'\\); require\\('./routes/packages'\\); require\\('./routes/visas'\\); require\\('./server'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Package'\\); require\\('./routes/packages'\\); require\\('./routes/visas'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Departure'\\); require\\('./models/Package'\\); require\\('./routes/departures'\\); require\\('./routes/packages'\\); require\\('./routes/visas'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Supplier'\\); require\\('./models/SupplierLedger'\\); require\\('./routes/suppliers'\\); require\\('./routes/packages'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./routes/packages'\\); require\\('./routes/ledger'\\); console.log\\('OK'\\);\")",
+      "Bash(npm install *)",
+      "Bash(node -e \"console.log\\(require\\('multer/package.json'\\).version\\)\")",
+      "Bash(node -e \"require\\('./utils/upload'\\); require\\('./models/ClientB2C'\\); require\\('./models/Package'\\); require\\('./models/LedgerEntry'\\); require\\('./models/SupplierLedger'\\); require\\('./routes/clients'\\); require\\('./routes/packages'\\); require\\('./routes/ledger'\\); require\\('./routes/suppliers'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./routes/packages'\\); require\\('./routes/departures'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Expense'\\); require\\('./routes/expenses'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./routes/reports'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./models/Package'\\); require\\('./utils/allotment'\\); require\\('./routes/visas'\\); console.log\\('OK'\\);\")",
+      "Bash(node -e \"require\\('./routes/auth'\\); console.log\\('OK'\\);\")",
+      "Bash(node -c routes/ledger.js)",
+      "Bash(node -c routes/suppliers.js)",
+      "Bash(node -c models/LedgerEntry.js)",
+      "Bash(node -c models/CashAccount.js)",
+      "Bash(node -c routes/cashAccounts.js)",
+      "Bash(node -c routes/reports.js)",
+      "Bash(node -c models/SupplierLedger.js)",
+      "Bash(node -c models/Expense.js)",
+      "Bash(node -e ' *)",
+      "Bash(node -c routes/packages.js)",
+      "Bash(node -c routes/clients.js)",
+      "Bash(node -c routes/departures.js)"
+    ]
+  }
+}
