@@ -125,7 +125,7 @@ router.post('/b2c/:id/documents', uploadSingle, async (req, res) => {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const client = await ClientB2C.findById(req.params.id);
         if (!client) {
-            deleteUploadedFile(req.file.filename);
+            deleteUploadedFile(req.file.filename, req.file.cloudinaryResourceType);
             return res.status(404).json({ success: false, message: 'Client not found' });
         }
         const doc = buildDocFromUpload(req);
@@ -141,7 +141,7 @@ router.delete('/b2c/:id/documents/:docId', async (req, res) => {
         if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
         const doc = client.documents.id(req.params.docId);
         if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-        deleteUploadedFile(doc.filename);
+        deleteUploadedFile(doc.filename, doc.resourceType);
         doc.deleteOne();
         await client.save();
         res.json({ success: true, data: client });

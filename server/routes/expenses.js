@@ -131,7 +131,7 @@ router.post('/:id/documents', uploadSingle, async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const e = await Expense.findById(req.params.id);
-        if (!e) { deleteUploadedFile(req.file.filename); return res.status(404).json({ success: false, message: 'Expense not found' }); }
+        if (!e) { deleteUploadedFile(req.file.filename, req.file.cloudinaryResourceType); return res.status(404).json({ success: false, message: 'Expense not found' }); }
         e.documents.push(buildDocFromUpload(req));
         e.updatedBy = req.user._id;
         await e.save();
@@ -145,7 +145,7 @@ router.delete('/:id/documents/:docId', async (req, res) => {
         if (!e) return res.status(404).json({ success: false, message: 'Expense not found' });
         const doc = e.documents.id(req.params.docId);
         if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-        deleteUploadedFile(doc.filename);
+        deleteUploadedFile(doc.filename, doc.resourceType);
         doc.deleteOne();
         await e.save();
         res.json({ success: true, data: e });

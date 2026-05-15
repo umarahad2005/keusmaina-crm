@@ -1,0 +1,27 @@
+# Vercel deployment ignore — never ships to the function bundle
+node_modules
+**/node_modules
+.git
+.env
+**/.env
+**/.env.local
+
+# Local upload directory — files now live in Cloudinary
+server/uploads
+server/uploads/*
+
+# Build output (Vercel rebuilds)
+client/dist
+
+# Editor & OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Scripts that should never run on Vercel
+server/scripts/clearData.js

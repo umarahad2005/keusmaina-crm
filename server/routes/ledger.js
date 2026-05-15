@@ -291,7 +291,7 @@ router.post('/:id/documents', uploadSingle, async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const entry = await LedgerEntry.findById(req.params.id);
-        if (!entry) { deleteUploadedFile(req.file.filename); return res.status(404).json({ success: false, message: 'Entry not found' }); }
+        if (!entry) { deleteUploadedFile(req.file.filename, req.file.cloudinaryResourceType); return res.status(404).json({ success: false, message: 'Entry not found' }); }
         entry.documents.push(buildDocFromUpload(req));
         entry.updatedBy = req.user._id;
         await entry.save();
@@ -305,7 +305,7 @@ router.delete('/:id/documents/:docId', async (req, res) => {
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
         const doc = entry.documents.id(req.params.docId);
         if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-        deleteUploadedFile(doc.filename);
+        deleteUploadedFile(doc.filename, doc.resourceType);
         doc.deleteOne();
         await entry.save();
         res.json({ success: true, data: entry });

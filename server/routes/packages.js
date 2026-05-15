@@ -262,9 +262,9 @@ router.post('/:id/pilgrims/:entryId/documents', uploadSingle, async (req, res) =
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const pkg = await Package.findById(req.params.id);
-        if (!pkg) { deleteUploadedFile(req.file.filename); return res.status(404).json({ success: false, message: 'Package not found' }); }
+        if (!pkg) { deleteUploadedFile(req.file.filename, req.file.cloudinaryResourceType); return res.status(404).json({ success: false, message: 'Package not found' }); }
         const entry = pkg.pilgrims.id(req.params.entryId);
-        if (!entry) { deleteUploadedFile(req.file.filename); return res.status(404).json({ success: false, message: 'Roster entry not found' }); }
+        if (!entry) { deleteUploadedFile(req.file.filename, req.file.cloudinaryResourceType); return res.status(404).json({ success: false, message: 'Roster entry not found' }); }
         entry.documents.push(buildDocFromUpload(req));
         pkg.updatedBy = req.user._id;
         await pkg.save();
@@ -281,7 +281,7 @@ router.delete('/:id/pilgrims/:entryId/documents/:docId', async (req, res) => {
         if (!entry) return res.status(404).json({ success: false, message: 'Roster entry not found' });
         const doc = entry.documents.id(req.params.docId);
         if (!doc) return res.status(404).json({ success: false, message: 'Document not found' });
-        deleteUploadedFile(doc.filename);
+        deleteUploadedFile(doc.filename, doc.resourceType);
         doc.deleteOne();
         pkg.updatedBy = req.user._id;
         await pkg.save();

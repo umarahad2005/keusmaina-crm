@@ -11,6 +11,8 @@ const documentSchema = new mongoose.Schema({
     mimeType: { type: String },
     size: { type: Number },
     category: { type: String, default: 'receipt' },
+    storage: { type: String, enum: ['local', 'cloudinary'], default: 'local' },
+    resourceType: { type: String },
     uploadedAt: { type: Date, default: Date.now },
     uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { _id: true });

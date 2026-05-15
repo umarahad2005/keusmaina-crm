@@ -29,7 +29,13 @@
       "Bash(node -e ' *)",
       "Bash(node -c routes/packages.js)",
       "Bash(node -c routes/clients.js)",
-      "Bash(node -c routes/departures.js)"
+      "Bash(node -c routes/departures.js)",
+      "Bash(node -c server.js)",
+      "Bash(node -c utils/upload.js)",
+      "Bash(node -c routes/expenses.js)",
+      "Bash(node -c models/Package.js)",
+      "Bash(node -c models/ClientB2C.js)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }
