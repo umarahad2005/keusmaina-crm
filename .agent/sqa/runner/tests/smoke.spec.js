@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { login } = require('../fixtures/auth');
+const { apiUrl } = require('../fixtures/api');
 
 // SEED TESTS — copy this shape to add each QA agent from agents/qa-agents.md.
 // One `test(...)` = one QA check. A failure auto-saves a screenshot into
@@ -7,7 +8,7 @@ const { login } = require('../fixtures/auth');
 
 test.describe('api-health', () => {
   test('GET /api/health returns success within 10s', async ({ request }) => {
-    const res = await request.get('/api/health', { timeout: 10_000 });
+    const res = await request.get(apiUrl('/api/health'), { timeout: 10_000 });
     expect(res.status(), 'health endpoint should respond 200').toBe(200);
     const body = await res.json();
     expect(body.success, 'health body.success should be true').toBeTruthy();

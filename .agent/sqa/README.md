@@ -61,12 +61,17 @@ npx playwright install chromium
 
 Point it at the app and run:
 ```bash
-# local (default)
-SQA_BASE_URL=http://localhost:5173 npm run sqa
+# local dev — UI on :5173, API on :5000 (different origins)
+SQA_BASE_URL=http://localhost:5173 SQA_API_URL=http://localhost:5000 npm run sqa
 
-# or against the deployed site once it's live
+# deployed site once it's live — UI and API share one origin
 SQA_BASE_URL=https://keusmaina-crm.vercel.app npm run sqa
 ```
+
+- **`SQA_BASE_URL`** — where the **UI** lives (used by the browser/page tests).
+- **`SQA_API_URL`** — where the **API** lives (used by the API tests). Defaults to
+  `SQA_BASE_URL`, then `http://localhost:5000`. Set it only when the API is on a
+  different origin than the UI (i.e. local dev).
 
 - **`npm run sqa`** — run all QA agents, write `results/report.json` + screenshots.
 - **`npm run sqa:report`** — open the HTML report of the last run.
