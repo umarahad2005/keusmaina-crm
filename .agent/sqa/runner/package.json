@@ -1,0 +1,15 @@
+{
+  "name": "keusmania-sqa-runner",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright QA runner for the Karwan-e-Usmania CRM SQA system",
+  "scripts": {
+    "sqa": "playwright test",
+    "sqa:headed": "playwright test --headed",
+    "sqa:report": "playwright show-report ../results/report-html",
+    "sqa:fix": "node fix/run-fixes.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

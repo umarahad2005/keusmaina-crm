@@ -1,0 +1,7 @@
+# Auto-generated QA output — screenshots, reports, traces
+results/
+# Playwright browsers / deps
+node_modules/
+runner/node_modules/
+test-results/
+playwright-report/
