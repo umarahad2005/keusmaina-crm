@@ -1,25 +1,33 @@
 const express = require('express');
 const Ziyarat = require('../models/Ziyarat');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { OPS } = require('../middleware/roles');
+const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('Ziyarat'));
 
+// ratePerPersonPKR / ratePerGroupPKR are derived server-side from their SAR values; isActive changes only via DELETE.
+const ZIYARAT_PROTECTED = [...PROTECTED_FIELDS, 'isActive', 'ratePerPersonPKR', 'ratePerGroupPKR'];
+
 router.get('/', async (req, res) => {
     try {
-        const { search, page = 1, limit = 50, status, location } = req.query;
+        const { search, page = 1, status, location } = req.query;
+        const limit = clampLimit(req.query.limit, { def: 50, max: 200 });
         const query = {};
-        if (search) query.name = { $regex: search, $options: 'i' };
-        if (status === 'active') query.isActive = true;
-        if (status === 'inactive') query.isActive = false;
-        if (location) query.location = location;
+        if (search) query.name = safeSearchRegex(search);
+        const st = qStr(status);
+        if (st === 'active') query.isActive = true;
+        if (st === 'inactive') query.isActive = false;
+        const loc = qStr(location);
+        if (loc) query.location = loc;
 
         const total = await Ziyarat.countDocuments(query);
-        const ziyarats = await Ziyarat.find(query).sort('-createdAt').skip((page - 1) * limit).limit(parseInt(limit)).populate('createdBy', 'name');
-        res.json({ success: true, data: ziyarats, count: ziyarats.length, total, pagination: { page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / limit) } });
+        const ziyarats = await Ziyarat.find(query).sort('-createdAt').skip((page - 1) * limit).limit(limit).populate('createdBy', 'name');
+        res.json({ success: true, data: ziyarats, count: ziyarats.length, total, pagination: { page: parseInt(page), limit, pages: Math.ceil(total / limit) } });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -35,8 +43,9 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, ZIYARAT_PROTECTED);
         const currency = await CurrencySettings.getRate();
         if (req.body.ratePerPersonSAR) req.body.ratePerPersonPKR = req.body.ratePerPersonSAR * currency.sarToPkr;
         if (req.body.ratePerGroupSAR) req.body.ratePerGroupPKR = req.body.ratePerGroupSAR * currency.sarToPkr;
@@ -48,8 +57,9 @@ router.post('/', async (req, res) => {
     }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, ZIYARAT_PROTECTED);
         const currency = await CurrencySettings.getRate();
         if (req.body.ratePerPersonSAR) req.body.ratePerPersonPKR = req.body.ratePerPersonSAR * currency.sarToPkr;
         if (req.body.ratePerGroupSAR) req.body.ratePerGroupPKR = req.body.ratePerGroupSAR * currency.sarToPkr;
@@ -62,7 +72,7 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...OPS), async (req, res) => {
     try {
         const ziyarat = await Ziyarat.findByIdAndUpdate(req.params.id, { isActive: false, updatedBy: req.user._id }, { new: true });
         if (!ziyarat) return res.status(404).json({ success: false, message: 'Ziyarat not found' });

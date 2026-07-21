@@ -11,9 +11,101 @@ const Airline = require('../models/Airline');
 const HotelMakkah = require('../models/HotelMakkah');
 const HotelMadinah = require('../models/HotelMadinah');
 const { protect } = require('../middleware/auth');
+const { clampLimit } = require('../utils/sanitize');
 const router = express.Router();
 
 router.use(protect);
+
+// @route   GET /api/reports/payment-alerts
+// @desc    Cross-package outstanding-balance board for the "clear all payment
+//          BEFORE the pilgrim travels" rule. Returns every live package that
+//          still has money owed, prioritised by travel-date urgency.
+//          Query: ?warnDays=21 (how many days out counts as "due soon").
+router.get('/payment-alerts', async (req, res) => {
+    try {
+        const currency = await CurrencySettings.getRate();
+        const rate = currency.sarToPkr;
+        const now = Date.now();
+        const WARN_DAYS = Math.min(parseInt(req.query.warnDays, 10) || 21, 365);
+
+        // Live sales only — a cancelled/completed package isn't a collection target.
+        const packages = await Package.find({
+            isActive: true,
+            status: { $nin: ['cancelled', 'completed'] }
+        })
+            .select('voucherId packageName status travelDates numberOfPilgrims pricingSummary client clientType pilgrims')
+            .populate('client')
+            .populate('pilgrims.pilgrim', 'fullName')
+            .lean();
+
+        if (packages.length === 0) {
+            return res.json({ success: true, data: { alerts: [], summary: { count: 0, totalOutstandingPKR: 0, overdue: 0, dueSoon: 0, pending: 0 } } });
+        }
+
+        // Payments applied = client-ledger credits linked to each package.
+        const ids = packages.map(p => p._id);
+        const paidAgg = await LedgerEntry.aggregate([
+            { $match: { package: { $in: ids }, type: 'credit', isActive: true } },
+            { $group: { _id: '$package', paidPKR: { $sum: { $ifNull: ['$amountPKR', '$amount'] } } } }
+        ]);
+        const paidMap = new Map(paidAgg.map(p => [String(p._id), p.paidPKR]));
+
+        let alerts = packages.map(p => {
+            const totalPKR = Math.round((p.pricingSummary?.finalPriceSAR || 0) * rate);
+            const paidPKR = Math.round(paidMap.get(String(p._id)) || 0);
+            const remainingPKR = totalPKR - paidPKR;
+            const dep = p.travelDates?.departure ? new Date(p.travelDates.departure).getTime() : null;
+            const daysToTravel = dep != null ? Math.ceil((dep - now) / 86400000) : null;
+
+            // Urgency for an unpaid package:
+            //   overdue  — already travelling/travelled but not cleared (rule broken)
+            //   due_soon — travels within the warning window, still owing
+            //   pending  — owing but travel date is further out / unknown
+            let level = 'clear';
+            if (remainingPKR > 0) {
+                if (daysToTravel != null && daysToTravel < 0) level = 'overdue';
+                else if (daysToTravel != null && daysToTravel <= WARN_DAYS) level = 'due_soon';
+                else level = 'pending';
+            }
+
+            return {
+                packageId: p._id,
+                voucherId: p.voucherId,
+                packageName: p.packageName,
+                status: p.status,
+                client: p.client?.fullName || p.client?.companyName || '—',
+                clientType: p.clientType,
+                pilgrims: (p.pilgrims || []).map(x => x.pilgrim?.fullName).filter(Boolean),
+                pilgrimCount: p.numberOfPilgrims || (p.pilgrims || []).length,
+                departure: p.travelDates?.departure || null,
+                daysToTravel,
+                totalPKR, paidPKR, remainingPKR,
+                percentPaid: totalPKR > 0 ? Math.round((paidPKR / totalPKR) * 100) : 100,
+                level
+            };
+        }).filter(a => a.remainingPKR > 0);
+
+        const rank = { overdue: 0, due_soon: 1, pending: 2 };
+        alerts.sort((a, b) => {
+            if (rank[a.level] !== rank[b.level]) return rank[a.level] - rank[b.level];
+            const da = a.departure ? new Date(a.departure).getTime() : Infinity;
+            const db = b.departure ? new Date(b.departure).getTime() : Infinity;
+            return da - db;
+        });
+
+        const summary = {
+            count: alerts.length,
+            totalOutstandingPKR: alerts.reduce((s, a) => s + a.remainingPKR, 0),
+            overdue: alerts.filter(a => a.level === 'overdue').length,
+            dueSoon: alerts.filter(a => a.level === 'due_soon').length,
+            pending: alerts.filter(a => a.level === 'pending').length
+        };
+
+        // Optional cap for the dashboard widget (full list still summarised above).
+        const limit = clampLimit(req.query.limit, { def: 100, max: 500 });
+        res.json({ success: true, data: { alerts: alerts.slice(0, limit), summary } });
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
 
 // @route   GET /api/reports/overview
 // @desc    Dashboard overview stats
@@ -286,14 +378,26 @@ router.get('/accounts-dashboard', async (req, res) => {
         // ── 3. Cash on hand ─────────────────────────────────────────────
         const accounts = await CashAccount.find({ isActive: true }).lean();
         const accountIds = accounts.map(a => a._id);
+        // Same canonical cash rule as routes/cashAccounts.js buildBalanceMap:
+        //   client credit → in, client debit (refund) → out;
+        //   supplier credit (we paid) → out, supplier debit (refund to us) → in;
+        //   expense → out.
         const [cashClient, cashSup, cashExp] = await Promise.all([
             LedgerEntry.aggregate([
                 { $match: { isActive: true, cashAccount: { $in: accountIds } } },
-                { $group: { _id: '$cashAccount', inflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } } } }
+                { $group: {
+                    _id: '$cashAccount',
+                    inflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } },
+                    outflow: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } }
+                } }
             ]),
             SupplierLedger.aggregate([
                 { $match: { cashAccount: { $in: accountIds } } },
-                { $group: { _id: '$cashAccount', outflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } } } }
+                { $group: {
+                    _id: '$cashAccount',
+                    outflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } },
+                    inflow: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } }
+                } }
             ]),
             Expense.aggregate([
                 { $match: { isActive: true, cashAccount: { $in: accountIds } } },
@@ -301,8 +405,8 @@ router.get('/accounts-dashboard', async (req, res) => {
             ])
         ]);
         const accBal = new Map(accounts.map(a => [String(a._id), { ...a, inflow: 0, outflow: 0 }]));
-        cashClient.forEach(r => { const x = accBal.get(String(r._id)); if (x) x.inflow += r.inflow; });
-        cashSup.forEach(r => { const x = accBal.get(String(r._id)); if (x) x.outflow += r.outflow; });
+        cashClient.forEach(r => { const x = accBal.get(String(r._id)); if (x) { x.inflow += r.inflow; x.outflow += r.outflow; } });
+        cashSup.forEach(r => { const x = accBal.get(String(r._id)); if (x) { x.outflow += r.outflow; x.inflow += r.inflow; } });
         cashExp.forEach(r => { const x = accBal.get(String(r._id)); if (x) x.outflow += r.outflow; });
         const cashByAccount = Array.from(accBal.values()).map(a => ({
             _id: a._id, name: a.name, type: a.type,

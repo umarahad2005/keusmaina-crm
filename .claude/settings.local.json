@@ -35,7 +35,18 @@
       "Bash(node -c routes/expenses.js)",
       "Bash(node -c models/Package.js)",
       "Bash(node -c models/ClientB2C.js)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(git check-ignore *)",
+      "Bash(node --check routes/cashAccounts.js)",
+      "Bash(node --check routes/ledger.js)",
+      "Bash(node --check routes/reports.js)",
+      "WebSearch",
+      "WebFetch(domain:wifitalents.com)",
+      "WebFetch(domain:zesstech.pk)",
+      "Bash(node -e \"require\\('./routes/reports.js'\\); console.log\\('reports.js loads OK'\\)\")",
+      "Bash(curl *)",
+      "Bash(node --check server.js)",
+      "Bash(node -e \"require\\('./server.js'\\); console.log\\('server.js loads OK'\\); process.exit\\(0\\)\")"
     ]
   }
 }

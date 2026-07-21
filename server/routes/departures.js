@@ -3,32 +3,37 @@ const Departure = require('../models/Departure');
 const Package = require('../models/Package');
 const SupplierLedger = require('../models/SupplierLedger');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { OPS } = require('../middleware/roles');
+const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('Departure'));
 
+// isActive flips only through DELETE (soft-cancel).
+const DEP_PROTECTED = [...PROTECTED_FIELDS, 'isActive'];
+
 // GET /api/departures
 router.get('/', async (req, res) => {
     try {
-        const { search, status, page = 1, limit = 50 } = req.query;
+        const { search, status } = req.query;
+        const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = clampLimit(req.query.limit, { def: 50, max: 200 });
         const query = { isActive: true };
         if (search) {
-            query.$or = [
-                { code: { $regex: search, $options: 'i' } },
-                { name: { $regex: search, $options: 'i' } },
-                { season: { $regex: search, $options: 'i' } }
-            ];
+            const rx = safeSearchRegex(search);
+            query.$or = [{ code: rx }, { name: rx }, { season: rx }];
         }
-        if (status && status !== 'all') query.status = status;
+        const st = qStr(status);
+        if (st && st !== 'all') query.status = st;
 
         const total = await Departure.countDocuments(query);
         const list = await Departure.find(query)
             .sort('-travelDates.departure')
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit))
+            .skip((pageNum - 1) * limit)
+            .limit(limit)
             .populate('components.airline', 'name flightNumber')
             .populate('components.makkahHotel.hotel', 'name')
             .populate('components.madinahHotel.hotel', 'name')
@@ -209,9 +214,10 @@ router.get('/:id/profit', async (req, res) => {
 });
 
 // POST /api/departures
-router.post('/', async (req, res) => {
+router.post('/', authorize(...OPS), async (req, res) => {
     try {
         if (!req.body.travelDates?.departure) return res.status(400).json({ success: false, message: 'Departure date is required' });
+        stripFields(req.body, DEP_PROTECTED);
         // Strip empty refs
         if (req.body.components) {
             if (!req.body.components.airline) delete req.body.components.airline;
@@ -225,8 +231,9 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/departures/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, DEP_PROTECTED);
         if (req.body.components) {
             if (!req.body.components.airline) delete req.body.components.airline;
             if (!req.body.components.makkahHotel?.hotel && req.body.components.makkahHotel) req.body.components.makkahHotel.hotel = undefined;
@@ -240,7 +247,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/departures/:id (soft) — refuses if linked packages exist
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...OPS), async (req, res) => {
     try {
         const linked = await Package.countDocuments({ departure: req.params.id, isActive: true });
         if (linked > 0) {

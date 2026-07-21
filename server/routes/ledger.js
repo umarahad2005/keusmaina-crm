@@ -3,7 +3,7 @@ const LedgerEntry = require('../models/LedgerEntry');
 const ClientB2C = require('../models/ClientB2C');
 const ClientB2B = require('../models/ClientB2B');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
 const { uploadSingle, buildDocFromUpload, deleteUploadedFile } = require('../utils/upload');
 const router = express.Router();
@@ -11,7 +11,29 @@ const router = express.Router();
 router.use(protect);
 router.use(auditMiddleware('LedgerEntry'));
 
+// Recording a charge/payment is a daily sales task; editing or deleting money
+// history is more sensitive and stays with finance roles.
+const CAN_RECORD = ['admin', 'accounts', 'sales'];
+const CAN_EDIT = ['admin', 'accounts'];
+
 const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * rate : Number(amount);
+
+// Enforce the cash-movement rules on a ledger entry body (shared by POST/PUT).
+// Returns an error string if the entry is invalid, otherwise mutates `body`.
+//   • refund  → money paid back to the client: always a debit that MUST come out
+//     of a specific cash/bank account (so the account balance drops).
+//   • normal charge (debit, non-refund) → no cash moves, so it can't carry a
+//     cash account. Clearing it keeps the balance math honest.
+//   • payment (credit) → keep the chosen account (money in).
+function applyCashRules(body, { category, type, cashAccount }) {
+    if (category === 'refund') {
+        body.type = 'debit';
+        if (!cashAccount) return 'Select the cash/bank account to refund from';
+    } else if (type === 'debit') {
+        body.cashAccount = null;
+    }
+    return null;
+}
 
 // Build a Mongo query from common filter params
 function buildFilterQuery(req) {
@@ -252,11 +274,20 @@ router.get('/:id', async (req, res) => {
 });
 
 // @route   POST /api/ledger
-router.post('/', async (req, res) => {
+router.post('/', authorize(...CAN_RECORD), async (req, res) => {
     try {
         const currency = await CurrencySettings.getRate();
         req.body.createdBy = req.user._id;
+        delete req.body.updatedBy;
         req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr);
+
+        const ruleErr = applyCashRules(req.body, {
+            category: req.body.category,
+            type: req.body.type,
+            cashAccount: req.body.cashAccount
+        });
+        if (ruleErr) return res.status(400).json({ success: false, message: ruleErr });
+
         if (!req.body.package) delete req.body.package;
         if (!req.body.departure) delete req.body.departure;
         if (!req.body.cashAccount) delete req.body.cashAccount;
@@ -270,16 +301,28 @@ router.post('/', async (req, res) => {
 });
 
 // @route   PUT /api/ledger/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...CAN_EDIT), async (req, res) => {
     try {
+        const existing = await LedgerEntry.findById(req.params.id).lean();
+        if (!existing) return res.status(404).json({ success: false, message: 'Entry not found' });
+
         req.body.updatedBy = req.user._id;
+        delete req.body.createdBy;
         if (req.body.amount != null || req.body.currency) {
-            const existing = await LedgerEntry.findById(req.params.id).lean();
             const currency = await CurrencySettings.getRate();
-            const amt = req.body.amount ?? existing?.amount;
-            const cur = req.body.currency ?? existing?.currency ?? 'PKR';
+            const amt = req.body.amount ?? existing.amount;
+            const cur = req.body.currency ?? existing.currency ?? 'PKR';
             req.body.amountPKR = toPKR(amt, cur, currency.sarToPkr);
         }
+
+        // Re-apply the cash-movement rules against the merged (existing + patch) view.
+        const ruleErr = applyCashRules(req.body, {
+            category: req.body.category ?? existing.category,
+            type: req.body.type ?? existing.type,
+            cashAccount: req.body.cashAccount ?? existing.cashAccount
+        });
+        if (ruleErr) return res.status(400).json({ success: false, message: ruleErr });
+
         const entry = await LedgerEntry.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('client');
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
         res.json({ success: true, data: entry });
@@ -287,7 +330,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Documents (payment proofs)
-router.post('/:id/documents', uploadSingle, async (req, res) => {
+router.post('/:id/documents', authorize(...CAN_RECORD), uploadSingle, async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const entry = await LedgerEntry.findById(req.params.id);
@@ -299,7 +342,7 @@ router.post('/:id/documents', uploadSingle, async (req, res) => {
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
-router.delete('/:id/documents/:docId', async (req, res) => {
+router.delete('/:id/documents/:docId', authorize(...CAN_EDIT), async (req, res) => {
     try {
         const entry = await LedgerEntry.findById(req.params.id);
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
@@ -313,7 +356,7 @@ router.delete('/:id/documents/:docId', async (req, res) => {
 });
 
 // @route   DELETE /api/ledger/:id (soft delete)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...CAN_EDIT), async (req, res) => {
     try {
         const entry = await LedgerEntry.findByIdAndUpdate(req.params.id, { isActive: false, updatedBy: req.user._id }, { new: true });
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });

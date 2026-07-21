@@ -29,6 +29,17 @@ const userSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true
+    },
+    // Brute-force protection. Serverless resets the in-memory rate limiter every
+    // invocation, so login throttling has to be tracked in the DB per account.
+    failedLoginAttempts: {
+        type: Number,
+        default: 0,
+        select: false
+    },
+    lockUntil: {
+        type: Date,
+        select: false
     }
 }, {
     timestamps: true

@@ -1,6 +1,7 @@
 const express = require('express');
 const AuditLog = require('../models/AuditLog');
 const { protect, authorize } = require('../middleware/auth');
+const { qStr, clampLimit, safeSearchRegex } = require('../utils/sanitize');
 const router = express.Router();
 
 router.use(protect);
@@ -9,9 +10,13 @@ router.use(authorize('admin'));
 // @route   GET /api/audit-logs
 router.get('/', async (req, res) => {
     try {
-        const { search, page = 1, limit = 50, action, entity, userId, dateFrom, dateTo } = req.query;
+        const { search, page = 1, dateFrom, dateTo } = req.query;
+        const limit = clampLimit(req.query.limit, { def: 50, max: 200 });
         const query = {};
 
+        const action = qStr(req.query.action);
+        const entity = qStr(req.query.entity);
+        const userId = qStr(req.query.userId);
         if (action) query.action = action;
         if (entity) query.entity = entity;
         if (userId) query.userId = userId;
@@ -23,10 +28,11 @@ router.get('/', async (req, res) => {
         }
 
         if (search) {
+            const rx = safeSearchRegex(search);
             query.$or = [
-                { entity: { $regex: search, $options: 'i' } },
-                { action: { $regex: search, $options: 'i' } },
-                { userName: { $regex: search, $options: 'i' } }
+                { entity: rx },
+                { action: rx },
+                { userName: rx }
             ];
         }
 
@@ -34,7 +40,7 @@ router.get('/', async (req, res) => {
         const logs = await AuditLog.find(query)
             .sort('-timestamp')
             .skip((page - 1) * limit)
-            .limit(parseInt(limit))
+            .limit(limit)
             .populate('userId', 'name email role');
 
         // Map to consistent frontend-friendly format
@@ -49,7 +55,7 @@ router.get('/', async (req, res) => {
             createdAt: log.timestamp
         }));
 
-        res.json({ success: true, data, count: data.length, total, pagination: { page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / limit) } });
+        res.json({ success: true, data, count: data.length, total, pagination: { page: parseInt(page), limit, pages: Math.ceil(total / limit) } });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 

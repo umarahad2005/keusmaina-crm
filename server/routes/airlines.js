@@ -4,36 +4,44 @@ const Package = require('../models/Package');
 const CurrencySettings = require('../models/CurrencySettings');
 const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { OPS } = require('../middleware/roles');
+const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { CONSUMING_STATUSES } = require('../utils/allotment');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('Airline'));
 
+// ticketPricePKR is derived server-side from ticketPriceSAR; isActive changes only via DELETE.
+const AIRLINE_PROTECTED = [...PROTECTED_FIELDS, 'isActive', 'ticketPricePKR'];
+
 // @route   GET /api/airlines
 // @desc    Get all airlines (with search, pagination)
 router.get('/', async (req, res) => {
     try {
-        const { search, page = 1, limit = 50, status } = req.query;
+        const { search, page = 1, status } = req.query;
+        const limit = clampLimit(req.query.limit, { def: 50, max: 200 });
         const query = {};
 
         if (search) {
+            const rx = safeSearchRegex(search);
             query.$or = [
-                { name: { $regex: search, $options: 'i' } },
-                { flightNumber: { $regex: search, $options: 'i' } },
-                { departureCity: { $regex: search, $options: 'i' } },
-                { arrivalCity: { $regex: search, $options: 'i' } }
+                { name: rx },
+                { flightNumber: rx },
+                { departureCity: rx },
+                { arrivalCity: rx }
             ];
         }
 
-        if (status === 'active') query.isActive = true;
-        if (status === 'inactive') query.isActive = false;
+        const st = qStr(status);
+        if (st === 'active') query.isActive = true;
+        if (st === 'inactive') query.isActive = false;
 
         const total = await Airline.countDocuments(query);
         const airlines = await Airline.find(query)
             .sort('-createdAt')
             .skip((page - 1) * limit)
-            .limit(parseInt(limit))
+            .limit(limit)
             .populate('createdBy', 'name')
             .populate('updatedBy', 'name');
 
@@ -44,7 +52,7 @@ router.get('/', async (req, res) => {
             total,
             pagination: {
                 page: parseInt(page),
-                limit: parseInt(limit),
+                limit,
                 pages: Math.ceil(total / limit)
             }
         });
@@ -89,8 +97,9 @@ router.get('/:id', async (req, res) => {
 });
 
 // @route   POST /api/airlines
-router.post('/', async (req, res) => {
+router.post('/', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, AIRLINE_PROTECTED);
         const currency = await CurrencySettings.getRate();
         req.body.ticketPricePKR = req.body.ticketPriceSAR * currency.sarToPkr;
         req.body.createdBy = req.user._id;
@@ -103,8 +112,9 @@ router.post('/', async (req, res) => {
 });
 
 // @route   PUT /api/airlines/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, AIRLINE_PROTECTED);
         if (req.body.ticketPriceSAR) {
             const currency = await CurrencySettings.getRate();
             req.body.ticketPricePKR = req.body.ticketPriceSAR * currency.sarToPkr;
@@ -123,7 +133,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // @route   DELETE /api/airlines/:id (soft delete)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...OPS), async (req, res) => {
     try {
         const airline = await Airline.findByIdAndUpdate(
             req.params.id,

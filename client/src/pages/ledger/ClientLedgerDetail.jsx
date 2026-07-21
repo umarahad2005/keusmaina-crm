@@ -108,10 +108,12 @@ export default function ClientLedgerDetail() {
     const handleAdd = () => { setForm(emptyEntry(clientType, id)); setModal(true); };
     const handleSubmit = async () => {
         if (!form.amount || !form.description) { toast.error('Amount & description required'); return; }
+        if (form.category === 'refund' && !form.cashAccount) { toast.error('Select which account to refund from'); return; }
         setSaving(true);
         try {
             await api.post('/ledger', form);
-            toast.success(`${form.type === 'debit' ? 'Charge' : 'Payment'} recorded`);
+            const label = form.category === 'refund' ? 'Refund' : (form.type === 'debit' ? 'Charge' : 'Payment');
+            toast.success(`${label} recorded`);
             setModal(false); fetchAll();
         } catch (e) { toast.error(e.response?.data?.message || 'Failed'); }
         finally { setSaving(false); }
@@ -348,12 +350,20 @@ export default function ClientLedgerDetail() {
             <FormModal isOpen={modal} onClose={() => setModal(false)} title="Add Ledger Entry" onSubmit={handleSubmit} loading={saving}>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="sm:col-span-2 flex gap-2">
-                        <button type="button" onClick={() => set('type', 'debit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'debit' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                            🔴 Charge (what we sold / billed)
-                        </button>
-                        <button type="button" onClick={() => set('type', 'credit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'credit' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
-                            🟢 Payment (what they paid)
-                        </button>
+                        {form.category === 'refund' ? (
+                            <div className="flex-1 py-3 rounded-lg font-bold text-sm text-center bg-amber-100 text-amber-800 border border-amber-300">
+                                ↩️ Refund — money paid back to the client (goes OUT of a cash account)
+                            </div>
+                        ) : (
+                            <>
+                                <button type="button" onClick={() => set('type', 'debit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'debit' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                    🔴 Charge (what we sold / billed)
+                                </button>
+                                <button type="button" onClick={() => set('type', 'credit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'credit' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                    🟢 Payment (what they paid)
+                                </button>
+                            </>
+                        )}
                     </div>
 
                     <div><label className="label">Amount *</label>
@@ -365,7 +375,11 @@ export default function ClientLedgerDetail() {
                     <div><label className="label">Date</label>
                         <input className="input" type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
                     <div><label className="label">Category</label>
-                        <select className="select" value={form.category} onChange={e => set('category', e.target.value)}>
+                        <select className="select" value={form.category} onChange={e => {
+                            const v = e.target.value;
+                            // A refund is always money out of an account → force debit.
+                            setForm(f => ({ ...f, category: v, ...(v === 'refund' ? { type: 'debit' } : {}) }));
+                        }}>
                             {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                         </select></div>
                     <div><label className="label">Payment Method</label>
@@ -391,14 +405,20 @@ export default function ClientLedgerDetail() {
                             {departures.map(d => <option key={d._id} value={d._id}>{d.code} — {d.name}</option>)}
                         </select></div>
 
-                    {form.type === 'credit' && (
-                        <div className="sm:col-span-2 p-3 bg-green-50 rounded-lg border border-green-200">
-                            <label className="label text-green-800">💰 Received Into Account {form.type === 'credit' ? '(recommended)' : ''}</label>
+                    {(form.type === 'credit' || form.category === 'refund') && (
+                        <div className={`sm:col-span-2 p-3 rounded-lg border ${form.category === 'refund' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                            <label className={`label ${form.category === 'refund' ? 'text-red-800' : 'text-green-800'}`}>
+                                {form.category === 'refund' ? '↩️ Refund FROM Account *' : '💰 Received Into Account (recommended)'}
+                            </label>
                             <select className="select text-sm" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
-                                <option value="">— Not tracked —</option>
+                                <option value="">{form.category === 'refund' ? '— Select account —' : '— Not tracked —'}</option>
                                 {cashAccounts.map(a => <option key={a._id} value={a._id}>{a.name} {a.bankName ? `(${a.bankName})` : ''}</option>)}
                             </select>
-                            <p className="text-[10px] text-green-700 mt-1">Pick the account where you received this payment. Lets the cash balance auto-update.</p>
+                            <p className={`text-[10px] mt-1 ${form.category === 'refund' ? 'text-red-700' : 'text-green-700'}`}>
+                                {form.category === 'refund'
+                                    ? 'This amount will be deducted from the selected account when you save.'
+                                    : 'Pick the account where you received this payment. Lets the cash balance auto-update.'}
+                            </p>
                         </div>
                     )}
 

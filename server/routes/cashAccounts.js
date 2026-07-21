@@ -4,39 +4,45 @@ const CashAccount = require('../models/CashAccount');
 const LedgerEntry = require('../models/LedgerEntry');
 const SupplierLedger = require('../models/SupplierLedger');
 const Expense = require('../models/Expense');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('CashAccount'));
 
-// Sum up movements per account across all three transaction sources
+// Sum up movements per account across all three transaction sources.
+//
+// Canonical cash rule (must stay identical to the transaction feed in GET /:id
+// and to the dashboard in routes/reports.js):
+//   An entry moves cash only when it points at a cashAccount.
+//     • Client ledger:  credit = client paid us  → inflow
+//                       debit  = paid to client (refund/payout) → outflow
+//     • Supplier ledger: credit = we paid them    → outflow
+//                        debit  = supplier refunded us (rare) → inflow
+//     • Expense:        always → outflow
 async function buildBalanceMap() {
     const [clientAgg, supplierAgg, expenseAgg] = await Promise.all([
-        // Client payments received = money INTO the account (clientType=credit)
-        // Client refunds out (credit type 'refund') skipped — single-flow assumption
         LedgerEntry.aggregate([
             { $match: { isActive: true, cashAccount: { $ne: null } } },
             {
                 $group: {
                     _id: '$cashAccount',
                     inflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } },
-                    outflow: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, 0, 0] } }
+                    outflow: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } }
                 }
             }
         ]),
-        // Supplier payments made = money OUT (type=credit in supplier ledger means WE PAID)
         SupplierLedger.aggregate([
             { $match: { cashAccount: { $ne: null } } },
             {
                 $group: {
                     _id: '$cashAccount',
-                    outflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } }
+                    outflow: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } },
+                    inflow: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, { $ifNull: ['$amountPKR', '$amount'] }, 0] } }
                 }
             }
         ]),
-        // Operating expenses = money OUT
         Expense.aggregate([
             { $match: { isActive: true, cashAccount: { $ne: null } } },
             { $group: { _id: '$cashAccount', outflow: { $sum: { $ifNull: ['$amountPKR', '$amount'] } } } }
@@ -46,8 +52,8 @@ async function buildBalanceMap() {
     const map = new Map();
     const ensure = (id) => { const k = String(id); if (!map.has(k)) map.set(k, { inflow: 0, outflow: 0 }); return map.get(k); };
 
-    clientAgg.forEach(r => { const b = ensure(r._id); b.inflow += r.inflow; });
-    supplierAgg.forEach(r => { const b = ensure(r._id); b.outflow += r.outflow; });
+    clientAgg.forEach(r => { const b = ensure(r._id); b.inflow += r.inflow; b.outflow += r.outflow; });
+    supplierAgg.forEach(r => { const b = ensure(r._id); b.outflow += r.outflow; b.inflow += r.inflow; });
     expenseAgg.forEach(r => { const b = ensure(r._id); b.outflow += r.outflow; });
     return map;
 }
@@ -183,27 +189,39 @@ router.get('/:id', async (req, res) => {
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
+// Managing accounts (create / edit / delete) is restricted to finance roles.
+// Reading (the GET routes above) stays open to any signed-in user so that e.g.
+// a sales user can pick which account a client payment landed in.
+const FINANCE_ROLES = ['admin', 'accounts'];
+
 // POST /api/cash-accounts
-router.post('/', async (req, res) => {
+router.post('/', authorize(...FINANCE_ROLES), async (req, res) => {
     try {
-        req.body.createdBy = req.user._id;
-        const a = await CashAccount.create(req.body);
+        const body = { ...req.body, createdBy: req.user._id };
+        delete body.updatedBy;
+        const a = await CashAccount.create(body);
         res.status(201).json({ success: true, data: a });
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 // PUT /api/cash-accounts/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...FINANCE_ROLES), async (req, res) => {
     try {
-        req.body.updatedBy = req.user._id;
-        const a = await CashAccount.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
+        const body = { ...req.body, updatedBy: req.user._id };
+        // Fields that must never be overwritten from the request body.
+        delete body.createdBy;
+        // The opening balance directly shifts cash-on-hand, so only an admin may
+        // change it after the account is created — an accounts user editing the
+        // name/notes can't silently move the books.
+        if (req.user.role !== 'admin') delete body.openingBalancePKR;
+        const a = await CashAccount.findByIdAndUpdate(req.params.id, body, { new: true, runValidators: true });
         if (!a) return res.status(404).json({ success: false, message: 'Account not found' });
         res.json({ success: true, data: a });
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
 // DELETE /api/cash-accounts/:id — soft (refuses if linked transactions exist)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...FINANCE_ROLES), async (req, res) => {
     try {
         const [c1, c2, c3] = await Promise.all([
             LedgerEntry.countDocuments({ cashAccount: req.params.id }),

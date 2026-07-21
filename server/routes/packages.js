@@ -8,14 +8,20 @@ const Transport = require('../models/Transport');
 const SpecialService = require('../models/SpecialService');
 const Departure = require('../models/Departure');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { PACKAGES, VISA } = require('../middleware/roles');
+const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { applyAirlineDelta, checkAirlineCapacity, hotelAvailability } = require('../utils/allotment');
 const { uploadSingle, buildDocFromUpload, deleteUploadedFile } = require('../utils/upload');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('Package'));
+
+// pricingSummary is ALWAYS computed server-side (final price can't be supplied by
+// the client); isActive flips only through DELETE.
+const PACKAGE_PROTECTED = [...PROTECTED_FIELDS, 'isActive', 'pricingSummary'];
 
 // Pick the rate period whose [validFrom, validTo] window contains travelDate.
 // Falls back to the cheapest available rate when nothing matches (so a partial
@@ -156,25 +162,26 @@ async function calculatePricing(components, numberOfPilgrims, markupType, markup
 // @route   GET /api/packages
 router.get('/', async (req, res) => {
     try {
-        const { search, page = 1, limit = 50, status } = req.query;
+        const { search, status } = req.query;
+        const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = clampLimit(req.query.limit, { def: 50, max: 200 });
         const query = {};
         if (search) {
-            query.$or = [
-                { voucherId: { $regex: search, $options: 'i' } },
-                { packageName: { $regex: search, $options: 'i' } }
-            ];
+            const rx = safeSearchRegex(search);
+            query.$or = [{ voucherId: rx }, { packageName: rx }];
         }
-        if (status && status !== 'all') query.status = status;
+        const st = qStr(status);
+        if (st && st !== 'all') query.status = st;
 
         const total = await Package.countDocuments(query);
         const packages = await Package.find(query)
             .sort('-createdAt')
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit))
+            .skip((pageNum - 1) * limit)
+            .limit(limit)
             .populate('client')
             .populate('createdBy', 'name');
 
-        res.json({ success: true, data: packages, count: packages.length, total, pagination: { page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / limit) } });
+        res.json({ success: true, data: packages, count: packages.length, total, pagination: { page: pageNum, limit, pages: Math.ceil(total / limit) } });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 
@@ -201,7 +208,7 @@ router.get('/:id', async (req, res) => {
 // ─── ROSTER ENDPOINTS ──────────────────────────
 
 // POST /api/packages/:id/pilgrims  — add a pilgrim to the roster
-router.post('/:id/pilgrims', async (req, res) => {
+router.post('/:id/pilgrims', authorize(...PACKAGES), async (req, res) => {
     try {
         if (!req.body.pilgrim) return res.status(400).json({ success: false, message: 'pilgrim id is required' });
         const pkg = await Package.findById(req.params.id);
@@ -224,7 +231,7 @@ router.post('/:id/pilgrims', async (req, res) => {
 });
 
 // PUT /api/packages/:id/pilgrims/:entryId — update one roster entry
-router.put('/:id/pilgrims/:entryId', async (req, res) => {
+router.put('/:id/pilgrims/:entryId', authorize(...PACKAGES), async (req, res) => {
     try {
         const pkg = await Package.findById(req.params.id);
         if (!pkg) return res.status(404).json({ success: false, message: 'Package not found' });
@@ -243,7 +250,7 @@ router.put('/:id/pilgrims/:entryId', async (req, res) => {
 });
 
 // DELETE /api/packages/:id/pilgrims/:entryId — remove from roster
-router.delete('/:id/pilgrims/:entryId', async (req, res) => {
+router.delete('/:id/pilgrims/:entryId', authorize(...PACKAGES), async (req, res) => {
     try {
         const pkg = await Package.findById(req.params.id);
         if (!pkg) return res.status(404).json({ success: false, message: 'Package not found' });
@@ -258,7 +265,7 @@ router.delete('/:id/pilgrims/:entryId', async (req, res) => {
 });
 
 // POST /api/packages/:id/pilgrims/:entryId/documents — upload visa scan, MOFA approval, etc.
-router.post('/:id/pilgrims/:entryId/documents', uploadSingle, async (req, res) => {
+router.post('/:id/pilgrims/:entryId/documents', authorize(...PACKAGES), uploadSingle, async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const pkg = await Package.findById(req.params.id);
@@ -273,7 +280,7 @@ router.post('/:id/pilgrims/:entryId/documents', uploadSingle, async (req, res) =
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
-router.delete('/:id/pilgrims/:entryId/documents/:docId', async (req, res) => {
+router.delete('/:id/pilgrims/:entryId/documents/:docId', authorize(...PACKAGES), async (req, res) => {
     try {
         const pkg = await Package.findById(req.params.id);
         if (!pkg) return res.status(404).json({ success: false, message: 'Package not found' });
@@ -293,7 +300,7 @@ router.delete('/:id/pilgrims/:entryId/documents/:docId', async (req, res) => {
 // PATCH /api/packages/:id/pilgrims/:entryId/visa-status
 // Body: { status, notes?, visaNumber?, mutamirNumber?, mofaApplicationDate?, visaIssuedDate?, visaExpiryDate? }
 const { VISA_STAGES, PASSPORT_STATES } = require('../models/Package');
-router.patch('/:id/pilgrims/:entryId/visa-status', async (req, res) => {
+router.patch('/:id/pilgrims/:entryId/visa-status', authorize(...VISA), async (req, res) => {
     try {
         const { status, passportStatus, notes = '', visaNumber, mutamirNumber, mofaApplicationDate, visaIssuedDate, visaExpiryDate } = req.body;
         if (status && !VISA_STAGES.includes(status)) {
@@ -502,8 +509,14 @@ router.get('/:id/manifest', async (req, res) => {
 });
 
 // @route   POST /api/packages
-router.post('/', async (req, res) => {
+router.post('/', authorize(...PACKAGES), async (req, res) => {
     try {
+        // Markup is the only pricing input accepted from the client — capture it
+        // before stripping the rest of pricingSummary (final prices are computed).
+        const markupType = req.body.pricingSummary?.markupType;
+        const markupValue = req.body.pricingSummary?.markupValue;
+        stripFields(req.body, PACKAGE_PROTECTED);
+
         // Sanitize empty ObjectId fields to prevent BSONError
         if (!req.body.client) {
             delete req.body.client;
@@ -531,8 +544,8 @@ router.post('/', async (req, res) => {
         const pricing = await calculatePricing(
             req.body.components || {},
             req.body.numberOfPilgrims,
-            req.body.pricingSummary?.markupType,
-            req.body.pricingSummary?.markupValue,
+            markupType,
+            markupValue,
             req.body.travelDates
         );
         // Stamp resolved per-night rate onto the package's hotel components so
@@ -557,8 +570,17 @@ router.post('/', async (req, res) => {
 });
 
 // @route   PUT /api/packages/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...PACKAGES), async (req, res) => {
     try {
+        const oldPkg = await Package.findById(req.params.id).lean();
+        if (!oldPkg) return res.status(404).json({ success: false, message: 'Package not found' });
+
+        // Markup is the only pricing input we accept from the client; capture it
+        // before stripping pricingSummary (final prices are always computed here).
+        const markupType = req.body.pricingSummary?.markupType ?? oldPkg.pricingSummary?.markupType;
+        const markupValue = req.body.pricingSummary?.markupValue ?? oldPkg.pricingSummary?.markupValue;
+        stripFields(req.body, PACKAGE_PROTECTED);
+
         // Sanitize empty ObjectId fields
         if (req.body.client === '') {
             delete req.body.client;
@@ -566,7 +588,8 @@ router.put('/:id', async (req, res) => {
             delete req.body.clientType;
         }
 
-        if (req.body.components) {
+        const componentsChanged = !!req.body.components;
+        if (componentsChanged) {
             if (!req.body.components.airline) delete req.body.components.airline;
             if (!req.body.components.makkahHotel?.hotel) {
                 if (req.body.components.makkahHotel) req.body.components.makkahHotel.hotel = undefined;
@@ -574,31 +597,37 @@ router.put('/:id', async (req, res) => {
             if (!req.body.components.madinahHotel?.hotel) {
                 if (req.body.components.madinahHotel) req.body.components.madinahHotel.hotel = undefined;
             }
+        }
 
-            // Resolve from departure if linked
-            const { components: effComponents, travelDates: effTravelDates } = await resolveEffectiveComponents(req.body);
+        // ALWAYS recompute pricing server-side from the merged state, so the final
+        // price can never be injected via the request body (even when the client
+        // omits `components`). This closes the price-tampering hole.
+        const { components: effComponents, travelDates: effTravelDates } = await resolveEffectiveComponents({
+            departure: req.body.departure ?? oldPkg.departure,
+            components: req.body.components ?? oldPkg.components,
+            travelDates: req.body.travelDates ?? oldPkg.travelDates
+        });
+        const pricing = await calculatePricing(
+            effComponents,
+            req.body.numberOfPilgrims ?? oldPkg.numberOfPilgrims,
+            markupType,
+            markupValue,
+            effTravelDates
+        );
+        // Only persist resolved components/travelDates when the client actually
+        // changed them; but always store the freshly computed pricingSummary.
+        if (componentsChanged) {
             req.body.components = effComponents;
             req.body.travelDates = effTravelDates;
-
-            const pricing = await calculatePricing(
-                req.body.components,
-                req.body.numberOfPilgrims,
-                req.body.pricingSummary?.markupType,
-                req.body.pricingSummary?.markupValue,
-                req.body.travelDates
-            );
             if (req.body.components?.makkahHotel?.hotel) {
                 req.body.components.makkahHotel.ratePerNightSAR = pricing.makkahRatePerNightSAR;
             }
             if (req.body.components?.madinahHotel?.hotel) {
                 req.body.components.madinahHotel.ratePerNightSAR = pricing.madinahRatePerNightSAR;
             }
-            req.body.pricingSummary = pricing;
         }
+        req.body.pricingSummary = pricing;
         req.body.updatedBy = req.user._id;
-
-        const oldPkg = await Package.findById(req.params.id).lean();
-        if (!oldPkg) return res.status(404).json({ success: false, message: 'Package not found' });
 
         // Project the merged state so capacity check sees what would actually be saved.
         const projected = {
@@ -636,7 +665,7 @@ router.post('/calculate-pricing', async (req, res) => {
 });
 
 // @route   DELETE /api/packages/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...PACKAGES), async (req, res) => {
     try {
         const oldPkg = await Package.findById(req.params.id).lean();
         if (!oldPkg) return res.status(404).json({ success: false, message: 'Package not found' });
@@ -648,7 +677,7 @@ router.delete('/:id', async (req, res) => {
 
 // @route   PATCH /api/packages/bulk-status
 // Bulk advance many packages to the same status. Used by the list-view checkbox actions.
-router.patch('/bulk-status', async (req, res) => {
+router.patch('/bulk-status', authorize(...PACKAGES), async (req, res) => {
     try {
         const { ids, status } = req.body;
         const allowed = ['draft', 'quoted', 'confirmed', 'deposit_received', 'fully_paid', 'completed', 'cancelled'];

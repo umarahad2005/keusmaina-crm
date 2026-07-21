@@ -41,7 +41,7 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Please provide email and password' });
         }
 
-        const user = await User.findOne({ email }).select('+password');
+        const user = await User.findOne({ email }).select('+password +failedLoginAttempts +lockUntil');
         if (!user) {
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
@@ -50,9 +50,32 @@ router.post('/login', async (req, res) => {
             return res.status(401).json({ success: false, message: 'Account is deactivated' });
         }
 
+        // Account lockout: too many recent failures → temporarily refuse logins,
+        // even for the correct password, until the window passes.
+        if (user.lockUntil && user.lockUntil.getTime() > Date.now()) {
+            const mins = Math.ceil((user.lockUntil.getTime() - Date.now()) / 60000);
+            return res.status(429).json({ success: false, message: `Too many failed attempts. Try again in ${mins} minute(s).` });
+        }
+
         const isMatch = await user.comparePassword(password);
         if (!isMatch) {
+            // Count the failure and lock the account after MAX_ATTEMPTS.
+            const MAX_ATTEMPTS = 8;
+            const LOCK_MINUTES = 15;
+            user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+            if (user.failedLoginAttempts >= MAX_ATTEMPTS) {
+                user.lockUntil = new Date(Date.now() + LOCK_MINUTES * 60000);
+                user.failedLoginAttempts = 0;
+            }
+            await user.save();
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        }
+
+        // Successful login — clear any accumulated failure state.
+        if (user.failedLoginAttempts || user.lockUntil) {
+            user.failedLoginAttempts = 0;
+            user.lockUntil = undefined;
+            await user.save();
         }
 
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });

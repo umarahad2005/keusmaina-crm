@@ -1,6 +1,7 @@
 const express = require('express');
 const Package = require('../models/Package');
 const { protect } = require('../middleware/auth');
+const { qStr } = require('../utils/sanitize');
 const router = express.Router();
 
 router.use(protect);
@@ -12,7 +13,8 @@ const PASSPORT_EXPIRY_WARNING_DAYS = 180; // 6 months
 // Returns a flat list with passport-expiry flag.
 router.get('/', async (req, res) => {
     try {
-        const { status, packageStatus = 'active', search, departureFrom, departureTo } = req.query;
+        const { status, search, departureFrom, departureTo } = req.query;
+        const packageStatus = qStr(req.query.packageStatus) || 'active';
 
         const pkgQuery = { isActive: true };
         if (packageStatus === 'active') pkgQuery.status = { $in: ['draft', 'quoted', 'confirmed', 'deposit_received', 'fully_paid'] };

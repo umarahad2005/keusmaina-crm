@@ -2,13 +2,18 @@ const express = require('express');
 const Supplier = require('../models/Supplier');
 const SupplierLedger = require('../models/SupplierLedger');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { FINANCE } = require('../middleware/roles');
+const { qStr, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { uploadSingle, buildDocFromUpload, deleteUploadedFile } = require('../utils/upload');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('Supplier'));
+
+const SUPPLIER_PROTECTED = [...PROTECTED_FIELDS, 'isActive'];
+const SUPPLIER_LEDGER_PROTECTED = [...PROTECTED_FIELDS, 'amountPKR', 'supplier'];
 
 const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * rate : Number(amount);
 
@@ -31,8 +36,9 @@ router.get('/', async (req, res) => {
     try {
         const { search, type, status } = req.query;
         const query = {};
-        if (search) query.$or = [{ name: { $regex: search, $options: 'i' } }, { contactPerson: { $regex: search, $options: 'i' } }];
-        if (type && type !== 'all') query.type = type;
+        if (search) { const rx = safeSearchRegex(search); query.$or = [{ name: rx }, { contactPerson: rx }]; }
+        const t = qStr(type);
+        if (t && t !== 'all') query.type = t;
         if (status === 'active') query.isActive = true;
         if (status === 'inactive') query.isActive = false;
 
@@ -70,21 +76,19 @@ router.get('/:id', async (req, res) => {
 
         const { dateFrom, dateTo, type, paymentMethod, package: pkg, departure, category, search } = req.query;
         const q = { supplier: supplier._id };
-        if (type) q.type = type;
-        if (paymentMethod) q.paymentMethod = paymentMethod;
-        if (pkg) q.package = pkg;
-        if (departure) q.departure = departure;
-        if (category) q.category = category;
+        if (type) q.type = qStr(type);
+        if (paymentMethod) q.paymentMethod = qStr(paymentMethod);
+        if (pkg) q.package = qStr(pkg);
+        if (departure) q.departure = qStr(departure);
+        if (category) q.category = qStr(category);
         if (dateFrom || dateTo) {
             q.date = {};
             if (dateFrom) q.date.$gte = new Date(dateFrom);
             if (dateTo) { const e = new Date(dateTo); e.setHours(23, 59, 59, 999); q.date.$lte = e; }
         }
         if (search) {
-            q.$or = [
-                { description: { $regex: search, $options: 'i' } },
-                { referenceNumber: { $regex: search, $options: 'i' } }
-            ];
+            const rx = safeSearchRegex(search);
+            q.$or = [{ description: rx }, { referenceNumber: rx }];
         }
 
         // Sort ascending for running balance, then we'll show desc on UI if needed
@@ -118,8 +122,9 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/suppliers
-router.post('/', async (req, res) => {
+router.post('/', authorize(...FINANCE), async (req, res) => {
     try {
+        stripFields(req.body, SUPPLIER_PROTECTED);
         req.body.createdBy = req.user._id;
         const supplier = await Supplier.create(req.body);
         res.status(201).json({ success: true, data: supplier });
@@ -127,8 +132,12 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/suppliers/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...FINANCE), async (req, res) => {
     try {
+        // isActive can't be flipped here (that would bypass the DELETE guard);
+        // the opening balance shifts the payable total, so only admin may change it.
+        stripFields(req.body, SUPPLIER_PROTECTED);
+        if (req.user.role !== 'admin') delete req.body.openingBalancePKR;
         req.body.updatedBy = req.user._id;
         const supplier = await Supplier.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
         if (!supplier) return res.status(404).json({ success: false, message: 'Supplier not found' });
@@ -137,7 +146,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/suppliers/:id (soft) — refuses if ledger has entries
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...FINANCE), async (req, res) => {
     try {
         const count = await SupplierLedger.countDocuments({ supplier: req.params.id });
         if (count > 0) return res.status(409).json({ success: false, message: `Cannot delete: supplier has ${count} ledger entr${count === 1 ? 'y' : 'ies'}. Deactivate instead.` });
@@ -150,7 +159,7 @@ router.delete('/:id', async (req, res) => {
 // ─── SUPPLIER LEDGER ENDPOINTS ─────────────────
 
 // POST /api/suppliers/:id/ledger
-router.post('/:id/ledger', async (req, res) => {
+router.post('/:id/ledger', authorize(...FINANCE), async (req, res) => {
     try {
         if (!req.body.amount || !req.body.description) {
             return res.status(400).json({ success: false, message: 'amount and description are required' });
@@ -167,6 +176,8 @@ router.post('/:id/ledger', async (req, res) => {
         }
 
         const currency = await CurrencySettings.getRate();
+        // amountPKR / reconciled are server-controlled; supplier comes from the URL.
+        stripFields(req.body, SUPPLIER_LEDGER_PROTECTED);
         const entryBody = {
             ...req.body,
             supplier: req.params.id,
@@ -183,7 +194,7 @@ router.post('/:id/ledger', async (req, res) => {
 });
 
 // POST /api/suppliers/:id/ledger/:entryId/documents — invoice/receipt scans
-router.post('/:id/ledger/:entryId/documents', uploadSingle, async (req, res) => {
+router.post('/:id/ledger/:entryId/documents', authorize(...FINANCE), uploadSingle, async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const entry = await SupplierLedger.findOne({ _id: req.params.entryId, supplier: req.params.id });
@@ -195,7 +206,7 @@ router.post('/:id/ledger/:entryId/documents', uploadSingle, async (req, res) => 
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
-router.delete('/:id/ledger/:entryId/documents/:docId', async (req, res) => {
+router.delete('/:id/ledger/:entryId/documents/:docId', authorize(...FINANCE), async (req, res) => {
     try {
         const entry = await SupplierLedger.findOne({ _id: req.params.entryId, supplier: req.params.id });
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
@@ -209,7 +220,7 @@ router.delete('/:id/ledger/:entryId/documents/:docId', async (req, res) => {
 });
 
 // DELETE /api/suppliers/:id/ledger/:entryId
-router.delete('/:id/ledger/:entryId', async (req, res) => {
+router.delete('/:id/ledger/:entryId', authorize(...FINANCE), async (req, res) => {
     try {
         const entry = await SupplierLedger.findOneAndDelete({ _id: req.params.entryId, supplier: req.params.id });
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });

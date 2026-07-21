@@ -1,39 +1,44 @@
 const express = require('express');
 const Expense = require('../models/Expense');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { FINANCE } = require('../middleware/roles');
+const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { uploadSingle, buildDocFromUpload, deleteUploadedFile } = require('../utils/upload');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('Expense'));
 
+// amountPKR is derived server-side; isActive changes only via DELETE.
+const EXPENSE_PROTECTED = [...PROTECTED_FIELDS, 'amountPKR', 'isActive'];
+
 const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * rate : Number(amount);
 
 // GET /api/expenses
 router.get('/', async (req, res) => {
     try {
-        const { search, category, from, to, page = 1, limit = 100 } = req.query;
+        const { search, category, from, to } = req.query;
+        const pageNum = Math.max(1, parseInt(req.query.page, 10) || 1);
+        const limit = clampLimit(req.query.limit, { def: 100, max: 200 });
         const query = { isActive: true };
-        if (category && category !== 'all') query.category = category;
+        const cat = qStr(category);
+        if (cat && cat !== 'all') query.category = cat;
         if (from || to) {
             query.date = {};
             if (from) query.date.$gte = new Date(from);
             if (to) query.date.$lte = new Date(to);
         }
         if (search) {
-            query.$or = [
-                { description: { $regex: search, $options: 'i' } },
-                { paidTo: { $regex: search, $options: 'i' } },
-                { referenceNumber: { $regex: search, $options: 'i' } }
-            ];
+            const rx = safeSearchRegex(search);
+            query.$or = [{ description: rx }, { paidTo: rx }, { referenceNumber: rx }];
         }
         const total = await Expense.countDocuments(query);
         const data = await Expense.find(query)
             .sort('-date -createdAt')
-            .skip((page - 1) * limit)
-            .limit(parseInt(limit))
+            .skip((pageNum - 1) * limit)
+            .limit(limit)
             .populate('createdBy', 'name')
             .lean();
         res.json({ success: true, data, count: data.length, total });
@@ -89,11 +94,12 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/expenses
-router.post('/', async (req, res) => {
+router.post('/', authorize(...FINANCE), async (req, res) => {
     try {
         if (!req.body.amount || !req.body.description) {
             return res.status(400).json({ success: false, message: 'amount and description are required' });
         }
+        stripFields(req.body, EXPENSE_PROTECTED);
         const currency = await CurrencySettings.getRate();
         req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr);
         req.body.createdBy = req.user._id;
@@ -104,8 +110,10 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/expenses/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...FINANCE), async (req, res) => {
     try {
+        // amountPKR can never be set from the body — always derive it from amount.
+        stripFields(req.body, EXPENSE_PROTECTED);
         if (req.body.amount !== undefined) {
             const currency = await CurrencySettings.getRate();
             req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr);
@@ -118,7 +126,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/expenses/:id
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...FINANCE), async (req, res) => {
     try {
         const e = await Expense.findByIdAndUpdate(req.params.id, { isActive: false, updatedBy: req.user._id }, { new: true });
         if (!e) return res.status(404).json({ success: false, message: 'Expense not found' });
@@ -127,7 +135,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Documents
-router.post('/:id/documents', uploadSingle, async (req, res) => {
+router.post('/:id/documents', authorize(...FINANCE), uploadSingle, async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, message: 'No file uploaded' });
         const e = await Expense.findById(req.params.id);
@@ -139,7 +147,7 @@ router.post('/:id/documents', uploadSingle, async (req, res) => {
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
 
-router.delete('/:id/documents/:docId', async (req, res) => {
+router.delete('/:id/documents/:docId', authorize(...FINANCE), async (req, res) => {
     try {
         const e = await Expense.findById(req.params.id);
         if (!e) return res.status(404).json({ success: false, message: 'Expense not found' });

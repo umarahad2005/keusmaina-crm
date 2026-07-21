@@ -44,19 +44,24 @@ router.put('/', authorize('admin'), async (req, res) => {
             await airline.save();
         }
 
-        // Hotels Makkah
-        const hotelsMakkah = await HotelMakkah.find({});
-        for (const hotel of hotelsMakkah) {
-            hotel.roomTypes = hotel.roomTypes.map(rt => ({ ...rt.toObject(), ratePKR: rt.rateSAR * rate }));
-            await hotel.save();
-        }
-
-        // Hotels Madinah
-        const hotelsMadinah = await HotelMadinah.find({});
-        for (const hotel of hotelsMadinah) {
-            hotel.roomTypes = hotel.roomTypes.map(rt => ({ ...rt.toObject(), ratePKR: rt.rateSAR * rate }));
-            await hotel.save();
-        }
+        // Hotels Makkah + Madinah — SAR rates live per room type PER SEASON
+        // (roomTypes[].rates[].rateSAR), so we must stamp ratePKR on each nested
+        // rate period. The old code read rt.rateSAR (which doesn't exist) and
+        // wrote ratePKR at the wrong level, leaving hotel PKR prices stale.
+        const recalcHotel = async (Model) => {
+            const hotels = await Model.find({});
+            for (const hotel of hotels) {
+                for (const rt of hotel.roomTypes || []) {
+                    for (const r of rt.rates || []) {
+                        r.ratePKR = (r.rateSAR || 0) * rate;
+                    }
+                }
+                hotel.markModified('roomTypes');
+                await hotel.save();
+            }
+        };
+        await recalcHotel(HotelMakkah);
+        await recalcHotel(HotelMadinah);
 
         // Ziyarats
         const ziyarats = await Ziyarat.find({});

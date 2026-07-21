@@ -1,26 +1,33 @@
 const express = require('express');
 const HotelMadinah = require('../models/HotelMadinah');
 const CurrencySettings = require('../models/CurrencySettings');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
+const { OPS } = require('../middleware/roles');
+const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { hotelAvailability } = require('../utils/allotment');
 const router = express.Router();
 
 router.use(protect);
 router.use(auditMiddleware('HotelMadinah'));
 
+// rates[].ratePKR is derived server-side from rateSAR; isActive changes only via DELETE.
+const HOTEL_PROTECTED = [...PROTECTED_FIELDS, 'isActive', 'ratePKR'];
+
 // @route   GET /api/hotels-madinah
 router.get('/', async (req, res) => {
     try {
-        const { search, page = 1, limit = 50, status } = req.query;
+        const { search, page = 1, status } = req.query;
+        const limit = clampLimit(req.query.limit, { def: 50, max: 200 });
         const query = {};
-        if (search) query.name = { $regex: search, $options: 'i' };
-        if (status === 'active') query.isActive = true;
-        if (status === 'inactive') query.isActive = false;
+        if (search) query.name = safeSearchRegex(search);
+        const st = qStr(status);
+        if (st === 'active') query.isActive = true;
+        if (st === 'inactive') query.isActive = false;
 
         const total = await HotelMadinah.countDocuments(query);
-        const hotels = await HotelMadinah.find(query).sort('-createdAt').skip((page - 1) * limit).limit(parseInt(limit)).populate('createdBy', 'name');
-        res.json({ success: true, data: hotels, count: hotels.length, total, pagination: { page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / limit) } });
+        const hotels = await HotelMadinah.find(query).sort('-createdAt').skip((page - 1) * limit).limit(limit).populate('createdBy', 'name');
+        res.json({ success: true, data: hotels, count: hotels.length, total, pagination: { page: parseInt(page), limit, pages: Math.ceil(total / limit) } });
     } catch (error) {
         res.status(500).json({ success: false, message: error.message });
     }
@@ -60,8 +67,9 @@ const stampPKR = async (roomTypes) => {
     }));
 };
 
-router.post('/', async (req, res) => {
+router.post('/', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, HOTEL_PROTECTED);
         if (req.body.roomTypes) req.body.roomTypes = await stampPKR(req.body.roomTypes);
         req.body.createdBy = req.user._id;
         const hotel = await HotelMadinah.create(req.body);
@@ -71,8 +79,9 @@ router.post('/', async (req, res) => {
     }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', authorize(...OPS), async (req, res) => {
     try {
+        stripFields(req.body, HOTEL_PROTECTED);
         if (req.body.roomTypes) req.body.roomTypes = await stampPKR(req.body.roomTypes);
         req.body.updatedBy = req.user._id;
         const hotel = await HotelMadinah.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
@@ -83,7 +92,7 @@ router.put('/:id', async (req, res) => {
     }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', authorize(...OPS), async (req, res) => {
     try {
         const hotel = await HotelMadinah.findByIdAndUpdate(req.params.id, { isActive: false, updatedBy: req.user._id }, { new: true });
         if (!hotel) return res.status(404).json({ success: false, message: 'Hotel not found' });

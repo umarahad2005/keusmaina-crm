@@ -64,6 +64,22 @@ app.use('/api/', limiter);
 // the connection promise on `global` so warm invocations reuse it.
 const cached = global._mongoose || (global._mongoose = { conn: null, promise: null });
 
+// One-time bootstrap: guarantee there's always an admin to log in with, so a
+// fresh database or a fresh deploy is usable WITHOUT manually hitting a seed
+// endpoint (vercel.json can't run curl). Idempotent — it never touches an
+// existing admin, so it can't overwrite a changed password. Set
+// SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD in the environment to control the
+// initial credentials; the defaults are for first login only — change the
+// password immediately after.
+async function ensureSeedAdmin() {
+    const User = require('./models/User');
+    if (await User.findOne({ role: 'admin' }).select('_id')) return;
+    const email = (process.env.SEED_ADMIN_EMAIL || 'admin@keusmania.com').toLowerCase();
+    const password = process.env.SEED_ADMIN_PASSWORD || 'admin123';
+    await User.create({ name: 'Admin', email, password, role: 'admin' });
+    console.log(`✅ Seeded initial admin: ${email}`);
+}
+
 async function connectDB() {
     if (cached.conn) return cached.conn;
     if (!cached.promise) {
@@ -79,6 +95,11 @@ async function connectDB() {
         });
     }
     cached.conn = await cached.promise;
+    // Bootstrap the admin once per process, after the connection is live.
+    if (!global._adminSeeded) {
+        global._adminSeeded = true;
+        try { await ensureSeedAdmin(); } catch (e) { console.error('Admin seed skipped:', e.message); }
+    }
     return cached.conn;
 }
 
