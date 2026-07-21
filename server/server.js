@@ -10,6 +10,14 @@ const path = require('path');
 // Load environment variables
 dotenv.config();
 
+// Local dev only: some ISP/OS resolvers can't perform MongoDB SRV lookups
+// (querySrv ECONNREFUSED), which makes a `mongodb+srv://` URI hang. Forcing a
+// public resolver in dev lets `npm run dev` connect to Atlas. Vercel's DNS
+// handles SRV fine, so this is skipped in production.
+if (!process.env.VERCEL) {
+    try { require('dns').setServers(['8.8.8.8', '1.1.1.1']); } catch { /* ignore */ }
+}
+
 const app = express();
 
 // ======================
