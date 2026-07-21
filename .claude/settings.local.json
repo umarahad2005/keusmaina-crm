@@ -48,7 +48,9 @@
       "Bash(node --check server.js)",
       "Bash(node -e \"require\\('./server.js'\\); console.log\\('server.js loads OK'\\); process.exit\\(0\\)\")",
       "Bash(node -e \"require\\('./server.js'\\); console.log\\('loads OK'\\); process.exit\\(0\\)\")",
-      "Bash(git fetch *)"
+      "Bash(git fetch *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
