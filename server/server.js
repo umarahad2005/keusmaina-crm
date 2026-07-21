@@ -94,7 +94,15 @@ async function connectDB() {
             return m;
         });
     }
-    cached.conn = await cached.promise;
+    try {
+        cached.conn = await cached.promise;
+    } catch (err) {
+        // Don't cache a rejected connection promise — otherwise every later
+        // request in this instance would reuse the failure. Reset so the next
+        // request retries a fresh connection.
+        cached.promise = null;
+        throw err;
+    }
     // Bootstrap the admin once per process, after the connection is live.
     if (!global._adminSeeded) {
         global._adminSeeded = true;
