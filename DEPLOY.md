@@ -1,123 +1,122 @@
-# Deploying to Vercel
+# Deployment guide
 
-This repo is configured to deploy as a single Vercel project:
+The app is two independent parts, deployed separately:
 
-- **Frontend** — the Vite React app under `client/`, output served as static.
-- **API** — the Express app under `server/`, wrapped as a single serverless function via `api/index.js`.
-- **Files** — uploads go to Cloudinary in production. Local dev keeps the existing on-disk flow.
-- **Database** — MongoDB Atlas (or any reachable MongoDB).
+| Folder | What it is | Deploy to | Its env file |
+|---|---|---|---|
+| `client/` | Vite + React frontend (static) | **Vercel** | `client/.env` (`VITE_API_URL`) |
+| `server/` | Express + Mongoose backend (API) | **Render** | `server/.env` (DB, secrets, Cloudinary) |
 
-Total setup time: ~30 minutes if you don't already have the accounts.
+**Why Render for the backend, not Vercel/Netlify?** Vercel & Netlify are
+serverless — in this setup they connect to MongoDB but the query hangs and the
+function times out. Render (and Railway) run an always-on server, exactly like
+local, so it just works.
 
----
-
-## 1. Prerequisites — three free accounts
-
-### a) MongoDB Atlas
-1. Create a free **M0** cluster at https://cloud.mongodb.com.
-2. **Network Access** → add `0.0.0.0/0` (Vercel's outbound IPs are not fixed; Atlas M0 allows this).
-3. **Database Access** → create a user with read/write to the DB.
-4. **Connect → Drivers** → copy the connection string. Replace `<password>` and the DB name (e.g. `keusmania_crm`).
-   ```
-   mongodb+srv://username:password@cluster0.xxxxx.mongodb.net/keusmania_crm?retryWrites=true&w=majority
-   ```
-
-### b) Cloudinary
-1. Sign up at https://cloudinary.com (free tier: 25 GB storage + 25 GB bandwidth/month).
-2. Dashboard → **Account Details** → copy **Cloud Name**, **API Key**, **API Secret**.
-
-### c) Vercel
-1. Sign up at https://vercel.com with GitHub.
-2. Push this repo to GitHub.
-3. Vercel → **Add New Project** → import the repo.
+Data lives in **MongoDB Atlas**; uploaded files in **Cloudinary**.
 
 ---
 
-## 2. Vercel environment variables
+## 1. Prerequisites (free accounts)
 
-In the Vercel project settings → **Environment Variables**, add the following for **Production** (and ideally Preview):
+- **MongoDB Atlas** — free M0 cluster. Network Access → add `0.0.0.0/0`.
+  Copy the `mongodb+srv://…` string (Connect → Drivers), fill in the password and
+  db name (`keusmania_crm`).
+- **Cloudinary** — free. Copy Cloud Name / API Key / API Secret.
+- **GitHub** — push this repo.
+- **Render** (backend) and **Vercel** (frontend) — sign up with GitHub.
+
+---
+
+## 2. Backend → Render
+
+Render → **New → Web Service** → pick this repo, then:
+
+| Setting | Value |
+|---|---|
+| Root Directory | `server` |
+| Build Command | `npm install` |
+| Start Command | `node server.js` |
+| Instance Type | Free |
+
+**Environment variables** (Render → Environment) — see `server/.env.example`:
 
 | Variable | Value |
 |---|---|
-| `MONGO_URI` | The Atlas connection string from step 1a |
-| `JWT_SECRET` | A long random string — generate with `openssl rand -base64 48` |
-| `CLOUDINARY_CLOUD_NAME` | From the Cloudinary dashboard |
-| `CLOUDINARY_API_KEY` | From the Cloudinary dashboard |
-| `CLOUDINARY_API_SECRET` | From the Cloudinary dashboard |
-| `CLOUDINARY_FOLDER` | `keusmania` (or whatever subfolder you want) |
-| `VITE_API_URL` | `/api` *(same-origin in production)* |
+| `MONGO_URI` | Atlas `mongodb+srv://…` string |
+| `JWT_SECRET` | long random string |
+| `CLIENT_URL` | your Vercel URL (for CORS), e.g. `https://keusmaina-crm.vercel.app` |
+| `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | from Cloudinary |
+| `CLOUDINARY_FOLDER` | `keusmania` |
 
-Do **not** set `PORT` or `CLIENT_URL` — Vercel handles routing.
+Do **not** set `PORT` or `RENDER_EXTERNAL_URL` — Render provides both.
 
----
+Deploy → you get a URL like `https://keusmania-api.onrender.com`.
+Verify: open `…/api/health` → `{ "success": true }`.
 
-## 3. Deploy
-
-Click **Deploy** in the Vercel dashboard. The first build takes a couple of minutes; subsequent pushes to `main` redeploy automatically.
-
-The build runs:
-```
-npm install                       (root)
-npm install --prefix client       (Vite + React)
-npm install --prefix server       (Express + Mongoose + Cloudinary)
-npm install --prefix api          (serverless-http)
-npm run vercel-build              (vite build into client/dist)
-```
-
-Vercel then publishes `client/dist/` as static files and turns `api/index.js` into a serverless function. Routing is handled by `vercel.json`:
-
-- `/api/*` → the Express function
-- `/*` → `client/dist/index.html` (so React Router works)
+### Keep it awake (free tier sleeps after 15 min idle)
+- **Built-in:** the server self-pings `/api/health` every 10 min using
+  `RENDER_EXTERNAL_URL` — automatic, no setup.
+- **Recommended backup:** add a free **UptimeRobot** monitor hitting
+  `…/api/health` every 5 min (also alerts you if it goes down).
+- One always-on service uses ~730 of Render's 750 free hours/month — fits free.
 
 ---
 
-## 4. Verify the deployment
+## 3. Frontend → Vercel
 
-1. Hit `https://<your-project>.vercel.app/api/health` — should return `{ env: "vercel", ... }`.
-2. Log in with your existing credentials (the user collection isn't touched by the migration).
-3. Try uploading a passport scan — confirm the resulting URL starts with `https://res.cloudinary.com/`.
+Vercel → **Add New Project** → pick this repo, then:
+
+| Setting | Value |
+|---|---|
+| Root Directory | `client` |
+| Framework Preset | Vite (auto-detected) |
+
+**Environment variable** (Vercel → Settings → Environment Variables) — see
+`client/.env.example`:
+
+| Variable | Value |
+|---|---|
+| `VITE_API_URL` | your Render backend URL + `/api`, e.g. `https://keusmania-api.onrender.com/api` |
+
+⚠️ Vite bakes this in at **build time** — after changing it, **redeploy**.
+SPA routing (page refresh on `/ledger`, etc.) is handled by `client/vercel.json`.
+
+Deploy → open the site, log in with `admin@keusmania.com` / `admin123`
+(change the password immediately).
 
 ---
 
-## 5. Local development is unchanged
-
-Run as before:
+## 4. Local development
 
 ```bash
-# terminal 1
+# terminal 1 — backend on :5000 (connects to Atlas)
 cd server && npm install && npm run dev
 
-# terminal 2
+# terminal 2 — frontend on :5173
 cd client && npm install && npm run dev
 ```
 
-If you don't set the Cloudinary env vars locally, uploads keep going to `server/uploads/` on disk — same as today. **You only need Cloudinary for the deployed environment.** This makes onboarding new contributors painless: they don't need a Cloudinary account.
+Local env: `server/.env` (`MONGO_URI`, `JWT_SECRET`, `CLIENT_URL=http://localhost:5173`)
+and `client/.env` (`VITE_API_URL=http://localhost:5000/api`).
+
+If you don't set Cloudinary vars locally, uploads fall back to `server/uploads/`.
 
 ---
 
-## 6. Files & limits worth knowing
+## 5. Common pitfalls
 
-- **Vercel Hobby tier**: 4.5 MB request body limit. For now this is the ceiling on a single passport scan upload. If you regularly upload files larger than this, upgrade to **Pro ($20/mo)** — that lifts it to 50 MB. Alternatively, switch to Cloudinary's signed direct-upload pattern so the browser uploads straight to Cloudinary, bypassing Vercel entirely (~1 hour of work; ask when you need it).
-- **Function timeout**: 30 s on Hobby. None of our endpoints come close.
-- **Cold start**: first request after ~5 min of inactivity adds ~1-2 s. Subsequent requests are warm (<100 ms).
-- **Atlas M0 sleeps** after long idle periods. First wake-up takes ~30 s. Upgrade to M2 ($9/mo) to avoid this if it bothers you.
-
----
-
-## 7. Common pitfalls
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `Mongo connection error: serverSelectionTimeout` on the first request after deploy | Atlas IP allowlist | Confirm `0.0.0.0/0` is in Network Access |
-| 401 on every request | `JWT_SECRET` differs from the one that signed existing tokens | Log out + log in, OR set it to the same value as your local `.env` |
-| Uploads fail with "Cloudinary upload failed" | Wrong / missing Cloudinary credentials | Re-paste them, redeploy |
-| 404 on every page reload of `/ledger`, `/packages`, etc. | Missing SPA fallback | The `vercel.json` rewrite rule handles this — confirm the file is in the deployed commit |
-| API route 500s with no detail | Vercel function logs | Vercel dashboard → Project → Deployments → click the deployment → **Functions** tab |
+| Symptom | Fix |
+|---|---|
+| CORS error in the browser console | `CLIENT_URL` on Render must exactly match the Vercel URL (no trailing slash) |
+| Login "network error" | `VITE_API_URL` on Vercel must be the Render URL + `/api`; redeploy after changing |
+| First request slow (~30–60s) | Render free cold start — the keep-alive + UptimeRobot minimize it |
+| DB connection error | Atlas Network Access must include `0.0.0.0/0`; check the `MONGO_URI` password |
+| 404 on page refresh | `client/vercel.json` provides the SPA fallback — confirm it's deployed |
 
 ---
 
-## 8. Rolling back
+## 6. Leftover files (safe to delete once the split works)
 
-Vercel keeps every deployment. From the project dashboard → **Deployments**, hover over any previous one → **Promote to Production**. Instant rollback, no rebuild needed.
-
-The codebase itself is dual-mode: deleting all `CLOUDINARY_*` env vars and reverting to disk-based hosting (Render, Railway, a VPS, etc.) requires zero code changes — uploads fall back to the local `server/uploads/` flow automatically.
+These were for the old single-Vercel serverless attempt and are no longer used:
+`api/`, the root `vercel.json`, and the root `package.json` build scripts. The
+frontend now deploys from `client/` and the backend from `server/`.
