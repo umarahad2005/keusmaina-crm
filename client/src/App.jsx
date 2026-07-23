@@ -19,6 +19,7 @@ import CurrencySettings from './pages/data/CurrencySettings';
 
 // Module 2
 import PackageList from './pages/packages/PackageList';
+import FixedPackageList from './pages/fixed-packages/FixedPackageList';
 import PackageWizard from './pages/packages/PackageWizard';
 import PackageDetail from './pages/packages/PackageDetail';
 import Manifest from './pages/packages/Manifest';
@@ -92,6 +93,7 @@ function AppRoutes() {
         <Route path="/special-services" element={<SpecialServices />} />
         <Route path="/currency" element={<CurrencySettings />} />
         <Route path="/packages" element={<PackageList />} />
+        <Route path="/fixed-packages" element={<FixedPackageList />} />
         <Route path="/packages/new" element={<PackageWizard />} />
         <Route path="/packages/view/:id" element={<PackageDetail />} />
         <Route path="/packages/view/:id/manifest" element={<Manifest />} />

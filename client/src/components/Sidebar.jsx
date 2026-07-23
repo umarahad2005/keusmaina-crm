@@ -20,6 +20,7 @@ const navItems = [
     { label: 'Groups', icon: MdGroups, path: '/departures', roles: ['admin', 'sales', 'operations'] },
     { label: 'Clients', icon: MdPeople, path: '/clients', roles: ['admin', 'sales'] },
     { label: 'Package Maker', icon: MdInventory, path: '/packages', roles: ['admin', 'sales'] },
+    { label: 'Fixed Packages', icon: MdStorefront, path: '/fixed-packages', roles: ['admin', 'sales', 'operations'] },
     { type: 'divider', label: 'Operations' },
     { label: 'Visa Tracker', icon: MdAssignmentInd, path: '/visas', roles: ['admin', 'sales', 'visa', 'operations'] },
     { type: 'divider', label: 'Accounts' },

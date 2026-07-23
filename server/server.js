@@ -154,6 +154,7 @@ app.use('/api/auth', require('./routes/auth'));
 
 // Module 2: Package Manager
 app.use('/api/packages', require('./routes/packages'));
+app.use('/api/fixed-packages', require('./routes/fixedPackages'));
 app.use('/api/clients', require('./routes/clients'));
 app.use('/api/visas', require('./routes/visas'));
 app.use('/api/departures', require('./routes/departures'));

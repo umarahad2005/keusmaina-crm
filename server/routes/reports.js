@@ -12,6 +12,7 @@ const HotelMakkah = require('../models/HotelMakkah');
 const HotelMadinah = require('../models/HotelMadinah');
 const { protect } = require('../middleware/auth');
 const { clampLimit } = require('../utils/sanitize');
+const { packageSellPKR } = require('../utils/pricing');
 const router = express.Router();
 
 router.use(protect);
@@ -33,7 +34,7 @@ router.get('/payment-alerts', async (req, res) => {
             isActive: true,
             status: { $nin: ['cancelled', 'completed'] }
         })
-            .select('voucherId packageName status travelDates numberOfPilgrims pricingSummary client clientType pilgrims')
+            .select('voucherId packageName status travelDates numberOfPilgrims pricingSummary client clientType pilgrims source')
             .populate('client')
             .populate('pilgrims.pilgrim', 'fullName')
             .lean();
@@ -51,7 +52,7 @@ router.get('/payment-alerts', async (req, res) => {
         const paidMap = new Map(paidAgg.map(p => [String(p._id), p.paidPKR]));
 
         let alerts = packages.map(p => {
-            const totalPKR = Math.round((p.pricingSummary?.finalPriceSAR || 0) * rate);
+            const totalPKR = packageSellPKR(p, rate); // honours fixed-price packages
             const paidPKR = Math.round(paidMap.get(String(p._id)) || 0);
             const remainingPKR = totalPKR - paidPKR;
             const dep = p.travelDates?.departure ? new Date(p.travelDates.departure).getTime() : null;

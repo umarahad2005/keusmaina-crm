@@ -62,6 +62,10 @@ const packageSchema = new mongoose.Schema({
 
     packageName: { type: String, required: true, trim: true },
     packageType: { type: String, enum: ['Umrah', 'Ziyarat', 'Custom', 'VIP'], default: 'Umrah' },
+    // 'custom' = built by the pricing engine (SAR-based). 'fixed' = sold from the
+    // Fixed Package inventory: pricingSummary.finalPricePKR is a hard PKR price
+    // that must never be recomputed from the SAR exchange rate.
+    source: { type: String, enum: ['custom', 'fixed'], default: 'custom' },
     travelSeason: { type: String }, // e.g. "Ramadan 2026", "Off-Peak"
     duration: { type: String }, // e.g. "14 Days"
     numberOfPilgrims: { type: Number, default: 1 },

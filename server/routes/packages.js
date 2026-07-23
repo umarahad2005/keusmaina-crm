@@ -13,6 +13,7 @@ const { auditMiddleware } = require('../middleware/auditLog');
 const { PACKAGES, VISA } = require('../middleware/roles');
 const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { applyAirlineDelta, checkAirlineCapacity, hotelAvailability } = require('../utils/allotment');
+const { packageSellPKR } = require('../utils/pricing');
 const { uploadSingle, buildDocFromUpload, deleteUploadedFile } = require('../utils/upload');
 const router = express.Router();
 
@@ -364,7 +365,7 @@ router.get('/:id/invoice-data', async (req, res) => {
         // Re-derive PKR from current FX rate (don't trust the saved snapshot).
         const currency = await CurrencySettings.getRate();
         const finalSAR = pkg.pricingSummary?.finalPriceSAR || 0;
-        const finalPKR = Math.round(finalSAR * currency.sarToPkr);
+        const finalPKR = packageSellPKR(pkg, currency.sarToPkr); // honours fixed-price packages
         const paidSAR_inPKR = Math.round(totalPaidSAR * currency.sarToPkr);
         const balancePKR = Math.max(0, finalPKR - totalPaidPKR - paidSAR_inPKR);
 
@@ -408,7 +409,7 @@ async function computeAllocatedDepartureCosts(pkg) {
 
 router.get('/:id/profit', async (req, res) => {
     try {
-        const pkg = await Package.findById(req.params.id).select('voucherId packageName pricingSummary departure numberOfPilgrims');
+        const pkg = await Package.findById(req.params.id).select('voucherId packageName pricingSummary departure numberOfPilgrims source');
         if (!pkg) return res.status(404).json({ success: false, message: 'Package not found' });
 
         // Direct costs — supplier debits explicitly linked to this package
@@ -433,7 +434,7 @@ router.get('/:id/profit', async (req, res) => {
         // Recompute revenue PKR at the *current* FX rate, not the snapshot taken
         // when the package was saved, so old packages don't show stale PKR.
         const currency = await CurrencySettings.getRate();
-        const sellPKR = Math.round((pkg.pricingSummary?.finalPriceSAR || 0) * currency.sarToPkr);
+        const sellPKR = packageSellPKR(pkg, currency.sarToPkr); // honours fixed-price packages
         const profit = sellPKR - totalCostPKR;
         const margin = sellPKR > 0 ? (profit / sellPKR) * 100 : 0;
 
@@ -597,6 +598,14 @@ router.put('/:id', authorize(...PACKAGES), async (req, res) => {
             if (!req.body.components.madinahHotel?.hotel) {
                 if (req.body.components.madinahHotel) req.body.components.madinahHotel.hotel = undefined;
             }
+        }
+
+        // Fixed-price packages carry a hard PKR price — never recompute it, and
+        // don't touch airline allotment (the seats belong to the supplier).
+        if (oldPkg.source === 'fixed') {
+            req.body.updatedBy = req.user._id;
+            const entry = await Package.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('client');
+            return res.json({ success: true, data: entry });
         }
 
         // ALWAYS recompute pricing server-side from the merged state, so the final
