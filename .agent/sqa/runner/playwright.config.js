@@ -12,7 +12,10 @@ module.exports = defineConfig({
   outputDir: path.join(resultsDir, 'artifacts'),
   timeout: 45_000,
   expect: { timeout: 10_000 },
-  fullyParallel: true,
+  // Test FILES run in parallel, but tests WITHIN a file run in order so specs
+  // that build state step-by-step (finance: payment → refund → verify;
+  // departures: create → read) stay correct.
+  fullyParallel: false,
   retries: 0,
   reporter: [
     ['list'],

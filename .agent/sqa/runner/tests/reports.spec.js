@@ -11,9 +11,13 @@ test.describe('reports', () => {
   });
 
   test('cash-on-hand total is consistent across endpoints', async ({ request }) => {
-    const list = await (await request.get(apiUrl('/api/cash-accounts'), auth(token))).json();
-    const summary = await (await request.get(apiUrl('/api/cash-accounts/summary'), auth(token))).json();
-    // Both derive from the same buildBalanceMap — the numbers must agree.
-    expect(list.totalCashOnHand, 'list vs summary cash totals must match').toBe(summary.data.totalCashOnHand);
+    // Both endpoints read the same active-account set from buildBalanceMap, so
+    // they must agree. Poll so a concurrent spec mutating data between the two
+    // reads can't cause a false mismatch.
+    await expect.poll(async () => {
+      const list = await (await request.get(apiUrl('/api/cash-accounts'), auth(token))).json();
+      const summary = await (await request.get(apiUrl('/api/cash-accounts/summary'), auth(token))).json();
+      return list.totalCashOnHand - summary.data.totalCashOnHand;
+    }, { message: 'list vs summary cash totals must match', timeout: 10_000, intervals: [400, 800, 1200] }).toBe(0);
   });
 });
