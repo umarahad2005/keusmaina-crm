@@ -213,6 +213,18 @@ if (!process.env.VERCEL) {
         app.listen(PORT, () => {
             console.log(`🚀 Server running on port ${PORT}`);
             console.log(`📡 API available at http://localhost:${PORT}/api`);
+
+            // Keep-alive for sleep-prone hosts (Render's free tier sleeps a web
+            // service after ~15 min with no inbound traffic). Pinging our own
+            // health endpoint every 10 min keeps traffic flowing so it never
+            // sleeps. Render sets RENDER_EXTERNAL_URL automatically; otherwise set
+            // KEEPALIVE_URL to the public /api/health URL. No-op locally.
+            const keepAliveUrl = process.env.KEEPALIVE_URL
+                || (process.env.RENDER_EXTERNAL_URL ? `${process.env.RENDER_EXTERNAL_URL}/api/health` : null);
+            if (keepAliveUrl && typeof fetch === 'function') {
+                setInterval(() => { fetch(keepAliveUrl).catch(() => { /* ignore */ }); }, 10 * 60 * 1000);
+                console.log(`⏰ Keep-alive: pinging ${keepAliveUrl} every 10 min`);
+            }
         });
     });
 }
