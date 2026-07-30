@@ -2,12 +2,10 @@
   "name": "keusmania-crm",
   "version": "1.0.0",
   "private": true,
-  "description": "Karwan-e-Usmania CRM — root build orchestrator for Vercel deployment",
+  "description": "Karwan-e-Usmania CRM — monorepo root. client/ deploys to Vercel, server/ to Render; neither builds from here.",
   "scripts": {
-    "vercel-build": "npm run build --prefix client",
-    "build": "npm run build --prefix client",
     "dev:client": "npm run dev --prefix client",
     "dev:server": "npm run dev --prefix server",
-    "install:all": "npm install && npm install --prefix client && npm install --prefix server && npm install --prefix api"
+    "install:all": "npm install --prefix client && npm install --prefix server"
   }
 }

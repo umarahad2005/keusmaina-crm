@@ -10,40 +10,53 @@ const path = require('path');
 // Load environment variables
 dotenv.config();
 
+// Where are we running? Render sets RENDER/RENDER_EXTERNAL_URL automatically,
+// Vercel sets VERCEL. Neither is present locally.
+const IS_RENDER = !!process.env.RENDER;
+const IS_SERVERLESS = !!process.env.VERCEL;
+const IS_PRODUCTION = IS_RENDER || IS_SERVERLESS || process.env.NODE_ENV === 'production';
+
 // Local dev only: some ISP/OS resolvers can't perform MongoDB SRV lookups
 // (querySrv ECONNREFUSED), which makes a `mongodb+srv://` URI hang. Forcing a
-// public resolver in dev lets `npm run dev` connect to Atlas. Vercel's DNS
-// handles SRV fine, so this is skipped in production.
-if (!process.env.VERCEL) {
+// public resolver in dev lets `npm run dev` connect to Atlas. Hosted platforms
+// resolve SRV fine with their own resolver — overriding it there would only add
+// a failure mode, so this is dev-only.
+if (!IS_PRODUCTION) {
     try { require('dns').setServers(['8.8.8.8', '1.1.1.1']); } catch { /* ignore */ }
 }
 
 const app = express();
+
+// Render (and any PaaS) terminates TLS at a proxy and forwards the real client
+// IP in X-Forwarded-For. Without this, req.ip is the proxy's IP — so every user
+// shares one rate-limit bucket and express-rate-limit logs a validation error.
+// `1` = trust exactly one proxy hop, which is Render's topology.
+if (IS_PRODUCTION) app.set('trust proxy', 1);
 
 // ======================
 // MIDDLEWARE
 // ======================
 app.use(helmet());
 
-// CORS — in serverless deployment the frontend is served from the same origin
-// as /api/* so CORS isn't strictly needed; this stays permissive for local dev
-// where Vite runs on :5173 and the API on :5000.
+// CORS — frontend (Vercel) and API (Render) are on different origins, so this
+// is load-bearing in production: CLIENT_URL must exactly match the Vercel URL,
+// no trailing slash. Locally it's Vite on :5173 talking to the API on :5000.
 app.use(cors({
     origin: process.env.CLIENT_URL || 'http://localhost:5173',
     credentials: true
 }));
 
 // Skip noisy access logs in serverless (Vercel captures everything anyway)
-if (!process.env.VERCEL) app.use(morgan('dev'));
+if (!IS_SERVERLESS) app.use(morgan('dev'));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Static-serve uploaded documents — only when running with persistent disk
-// (local dev). On Vercel the filesystem is read-only and uploads go straight
-// to Cloudinary, so this static handler is never hit and the directory may
-// not exist at all.
-if (!process.env.VERCEL) {
+// (local dev). In production uploads go straight to Cloudinary: Vercel's
+// filesystem is read-only, and Render's free-tier disk is wiped on every
+// deploy, so this static handler is never the source of truth there.
+if (!IS_SERVERLESS) {
     app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
         maxAge: '7d',
         setHeaders: (res, filePath) => {
@@ -136,7 +149,7 @@ app.get('/api/health', (req, res) => {
         success: true,
         message: 'Karwan-e-Usmania CRM API is running',
         timestamp: new Date().toISOString(),
-        env: process.env.VERCEL ? 'vercel' : 'local'
+        env: IS_SERVERLESS ? 'vercel' : IS_RENDER ? 'render' : 'local'
     });
 });
 
@@ -205,10 +218,9 @@ app.use((err, req, res, next) => {
 // ======================
 // START SERVER (local only)
 // ======================
-// When running on Vercel, the serverless wrapper at api/index.js handles
-// requests — we should NOT call app.listen() there. process.env.VERCEL is
-// set automatically inside Vercel runtime.
-if (!process.env.VERCEL) {
+// Render (and local dev) run a long-lived process, so we listen. A serverless
+// host would invoke the exported app per-request instead and must NOT listen.
+if (!IS_SERVERLESS) {
     const PORT = process.env.PORT || 5000;
     connectDB().then(() => {
         app.listen(PORT, () => {

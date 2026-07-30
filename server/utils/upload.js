@@ -24,6 +24,21 @@ const CLOUDINARY_ENABLED = !!(
     process.env.CLOUDINARY_API_SECRET
 );
 
+// Hosted filesystems don't survive a restart: Vercel's is read-only and
+// Render's free-tier disk is wiped on every deploy. If the Cloudinary vars are
+// missing in production, disk mode would "succeed" and then lose every file the
+// next time the service redeploys — so we refuse the upload instead of
+// silently destroying data. Local dev keeps the disk fallback.
+const IS_PRODUCTION = !!(process.env.RENDER || process.env.VERCEL || process.env.NODE_ENV === 'production');
+const STORAGE_UNSAFE = IS_PRODUCTION && !CLOUDINARY_ENABLED;
+if (STORAGE_UNSAFE) {
+    console.error(
+        '⚠️  Cloudinary is NOT configured but this is a production host with an ' +
+        'ephemeral filesystem. File uploads are DISABLED until you set ' +
+        'CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET.'
+    );
+}
+
 let cloudinary = null;
 if (CLOUDINARY_ENABLED) {
     cloudinary = require('cloudinary').v2;
@@ -38,7 +53,7 @@ if (CLOUDINARY_ENABLED) {
 }
 
 const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
-if (!CLOUDINARY_ENABLED && !fs.existsSync(UPLOAD_DIR)) {
+if (!CLOUDINARY_ENABLED && !STORAGE_UNSAFE && !fs.existsSync(UPLOAD_DIR)) {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
@@ -93,6 +108,11 @@ const uploadToCloudinary = (buffer, originalName, mimeType) => new Promise((reso
 // the file. Attaches the resulting URL/public_id to req.file so the
 // buildDocFromUpload helper below can read it just like in disk mode.
 const uploadSingle = (req, res, next) => {
+    if (STORAGE_UNSAFE) {
+        const err = new Error('File storage is not configured on this server. Set the Cloudinary environment variables and redeploy.');
+        err.statusCode = 503;
+        return next(err);
+    }
     upload(req, res, async (err) => {
         if (err) return next(err);
         if (!CLOUDINARY_ENABLED || !req.file) return next();

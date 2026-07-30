@@ -57,7 +57,12 @@
       "Bash(node --check server/server.js)",
       "Bash(git add *)",
       "Bash(git commit -q -m ' *)",
-      "Bash(grep -iE \"^.*\\\\.env$|secret\")"
+      "Bash(grep -iE \"^.*\\\\.env$|secret\")",
+      "Bash(SQA_BASE_URL=http://localhost:5173 SQA_API_URL=http://localhost:5000 npx playwright test tests/fixed-packages.spec.js)",
+      "Bash(git rm *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(node --check utils/upload.js)",
+      "Bash(RENDER=true CLOUDINARY_CLOUD_NAME= CLOUDINARY_API_KEY= CLOUDINARY_API_SECRET= node -e \"const u=require\\('./utils/upload'\\); console.log\\('CLOUDINARY_ENABLED=',u.CLOUDINARY_ENABLED\\); u.uploadSingle\\({},{},e=>console.log\\('upload blocked ->',e.statusCode,e.message\\)\\);\")"
     ]
   }
 }

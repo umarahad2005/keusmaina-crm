@@ -36,6 +36,7 @@ Render → **New → Web Service** → pick this repo, then:
 | Root Directory | `server` |
 | Build Command | `npm install` |
 | Start Command | `node server.js` |
+| Health Check Path | `/api/health` |
 | Instance Type | Free |
 
 **Environment variables** (Render → Environment) — see `server/.env.example`:
@@ -48,7 +49,14 @@ Render → **New → Web Service** → pick this repo, then:
 | `CLOUDINARY_CLOUD_NAME` / `_API_KEY` / `_API_SECRET` | from Cloudinary |
 | `CLOUDINARY_FOLDER` | `keusmania` |
 
-Do **not** set `PORT` or `RENDER_EXTERNAL_URL` — Render provides both.
+Do **not** set `PORT`, `RENDER` or `RENDER_EXTERNAL_URL` — Render provides all
+three, and the server uses `RENDER` to switch on production behaviour
+(`trust proxy` for correct rate-limiting behind Render's proxy, no dev DNS
+override).
+
+⚠️ **The Cloudinary vars are required on Render.** Render's free-tier disk is
+wiped on every deploy, so if they're missing the server disables uploads and
+returns 503 rather than writing files that would silently disappear.
 
 Deploy → you get a URL like `https://keusmania-api.onrender.com`.
 Verify: open `…/api/health` → `{ "success": true }`.
@@ -112,11 +120,12 @@ If you don't set Cloudinary vars locally, uploads fall back to `server/uploads/`
 | First request slow (~30–60s) | Render free cold start — the keep-alive + UptimeRobot minimize it |
 | DB connection error | Atlas Network Access must include `0.0.0.0/0`; check the `MONGO_URI` password |
 | 404 on page refresh | `client/vercel.json` provides the SPA fallback — confirm it's deployed |
+| Upload returns 503 "File storage is not configured" | Set the three `CLOUDINARY_*` vars on Render and redeploy |
 
 ---
 
-## 6. Leftover files (safe to delete once the split works)
+## 6. Vercel project settings
 
-These were for the old single-Vercel serverless attempt and are no longer used:
-`api/`, the root `vercel.json`, and the root `package.json` build scripts. The
-frontend now deploys from `client/` and the backend from `server/`.
+Root Directory **must** be `client`. There is no `vercel.json` or `api/` folder
+at the repo root any more — the old single-project serverless attempt was
+removed, so nothing at the root can hijack the build.
