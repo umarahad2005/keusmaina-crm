@@ -48,15 +48,32 @@ export default function Receipt() {
 
     const c = entry.client || {};
     const isCredit = entry.type === 'credit';
+    const isB2B = entry.clientType === 'B2B' || !!c.companyName;
+    const partyName = isB2B ? (c.companyName || c.fullName) : (c.fullName || c.companyName);
+
+    // A payment slip is only useful if it answers "what do I still owe?".
+    const amountPKR = entry.amountPKR ?? (entry.currency === 'PKR' ? entry.amount : null);
+    const balanceAfter = entry.runningBalancePKR;
 
     return (
         <PrintShell title={isCredit ? 'PAYMENT RECEIPT' : 'DEBIT NOTE'} subtitle={`Receipt # ${String(entry._id).slice(-8).toUpperCase()} · ${fmtDate(entry.date)}`}>
             <div className="grid-2">
                 <div className="box">
                     <h3>Received From</h3>
-                    <div className="v">{c.fullName || c.companyName || '—'}</div>
-                    {c.phone && <div style={{ fontSize: 11, color: '#444' }}>{c.phone}</div>}
-                    {c.cnic && <div style={{ fontSize: 11, color: '#444' }}>CNIC: {c.cnic}</div>}
+                    <div className="v">{partyName || '—'}</div>
+                    {isB2B ? (
+                        <>
+                            {c.agentCode && <div style={{ fontSize: 11, color: '#444' }}>Agent Code: <strong>{c.agentCode}</strong></div>}
+                            {c.contactPerson && <div style={{ fontSize: 11, color: '#444' }}>Attn: {c.contactPerson}</div>}
+                            {c.phone && <div style={{ fontSize: 11, color: '#444' }}>{c.phone}</div>}
+                            {c.email && <div style={{ fontSize: 11, color: '#444' }}>{c.email}</div>}
+                        </>
+                    ) : (
+                        <>
+                            {c.phone && <div style={{ fontSize: 11, color: '#444' }}>{c.phone}</div>}
+                            {c.cnic && <div style={{ fontSize: 11, color: '#444' }}>CNIC: {c.cnic}</div>}
+                        </>
+                    )}
                     <div style={{ fontSize: 11, color: '#444' }}>{entry.clientType}</div>
                 </div>
                 <div className="box">
@@ -81,7 +98,26 @@ export default function Receipt() {
                 <div style={{ fontSize: 11, color: '#666', textTransform: 'uppercase', letterSpacing: 1 }}>Amount {isCredit ? 'Received' : 'Charged'}</div>
                 <div style={{ fontSize: 28, fontWeight: 'bold', color: '#1a2c5b' }}>{entry.currency} {Number(entry.amount).toLocaleString()}</div>
                 <div style={{ fontSize: 11, color: '#444', marginTop: 4, fontStyle: 'italic' }}>({entry.currency === 'PKR' ? 'Pakistani Rupees' : 'Saudi Riyals'} {amountInWords(entry.amount)})</div>
+                {entry.currency !== 'PKR' && amountPKR != null && (
+                    <div style={{ fontSize: 11, color: '#666', marginTop: 4 }}>Equivalent: PKR {Number(amountPKR).toLocaleString()}</div>
+                )}
             </div>
+
+            {/* The point of a receipt is telling the client where they now stand. */}
+            {balanceAfter != null && (
+                <table className="totals" style={{ marginTop: 12 }}>
+                    <tbody>
+                        <tr>
+                            <td>{isCredit ? 'Amount received (PKR)' : 'Amount charged (PKR)'}</td>
+                            <td style={{ color: isCredit ? '#2e7d32' : '#c00' }}>{Number(amountPKR ?? 0).toLocaleString()}</td>
+                        </tr>
+                        <tr className="balance">
+                            <td>Balance outstanding after this entry (PKR)</td>
+                            <td>{Number(balanceAfter).toLocaleString()}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            )}
 
             {entry.notes && (
                 <div className="box" style={{ marginTop: 12 }}>

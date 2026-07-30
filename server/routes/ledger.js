@@ -269,7 +269,36 @@ router.get('/:id', async (req, res) => {
             .populate('departure', 'code name')
             .populate('createdBy', 'name');
         if (!entry) return res.status(404).json({ success: false, message: 'Entry not found' });
-        res.json({ success: true, data: entry });
+
+        // The receipt print needs the client's position as of this entry —
+        // "you paid X, you still owe Y". runningBalancePKR is computed per
+        // request by the list endpoints and never stored, so derive it here over
+        // every entry up to and including this one, using the same convention:
+        // a debit increases what the client owes, a credit reduces it.
+        const clientId = entry.client?._id || entry.client;
+        const scope = { isActive: true, client: clientId, clientModel: entry.clientModel };
+        const sum = (rows) => Math.round(rows.reduce((s, e) =>
+            s + ((e.amountPKR ?? e.amount) * (e.type === 'debit' ? 1 : -1)), 0));
+
+        const [upToHere, allForClient] = await Promise.all([
+            LedgerEntry.find({
+                ...scope,
+                $or: [
+                    { date: { $lt: entry.date } },
+                    { date: entry.date, _id: { $lte: entry._id } }
+                ]
+            }).select('type amount amountPKR').lean(),
+            LedgerEntry.find(scope).select('type amount amountPKR').lean()
+        ]);
+
+        res.json({
+            success: true,
+            data: {
+                ...entry.toObject(),
+                runningBalancePKR: sum(upToHere),
+                currentBalancePKR: sum(allForClient)
+            }
+        });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
 

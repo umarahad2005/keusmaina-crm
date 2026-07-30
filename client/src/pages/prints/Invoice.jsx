@@ -26,10 +26,16 @@ export default function Invoice() {
 
     const { package: pkg, payments, totals } = data;
     const c = pkg.client || {};
-    const clientName = c.fullName || c.companyName || '—';
+    const isB2B = pkg.clientType === 'B2B' || !!c.companyName;
+    const clientName = isB2B ? (c.companyName || c.fullName) : (c.fullName || c.companyName) || '—';
     const isPaid = totals.balancePKR <= 0;
 
-    const lines = [
+    // A fixed-source package is bought whole at a contracted PKR price — it has
+    // no SAR component breakdown, so the per-component table would render as
+    // empty with a SAR 0 total. Bill it as the single line it actually is.
+    const isFixed = pkg.source === 'fixed';
+
+    const lines = isFixed ? [] : [
         { label: 'Airline', amount: pkg.pricingSummary?.airlineCostSAR || 0 },
         { label: `Makkah Hotel${pkg.pricingSummary?.makkahRateLabel ? ` (${pkg.pricingSummary.makkahRateLabel})` : ''}`, amount: pkg.pricingSummary?.makkahHotelCostSAR || 0 },
         { label: `Madinah Hotel${pkg.pricingSummary?.madinahRateLabel ? ` (${pkg.pricingSummary.madinahRateLabel})` : ''}`, amount: pkg.pricingSummary?.madinahHotelCostSAR || 0 },
@@ -38,15 +44,37 @@ export default function Invoice() {
         { label: 'Special Services', amount: pkg.pricingSummary?.servicesCostSAR || 0 }
     ].filter(l => l.amount > 0);
 
+    // Always bill the server's finalPKR. Re-deriving it here as
+    // convertToPKR(finalSAR) billed every fixed-package sale as PKR 0, since a
+    // fixed package carries no SAR price at all.
+    const totalDuePKR = totals.finalPKR || 0;
+    const paidTotalPKR = (totals.totalPaidPKR || 0) + convertToPKR(totals.totalPaidSAR || 0);
+    const perPaxPKR = pkg.numberOfPilgrims > 0 ? Math.round(totalDuePKR / pkg.numberOfPilgrims) : totalDuePKR;
+
     return (
         <PrintShell title="INVOICE" subtitle={`Voucher ${pkg.voucherId} · Issued ${fmtDate(new Date())}`}>
             <div className="grid-2">
                 <div className="box">
                     <h3>Bill To</h3>
                     <div className="v">{clientName}</div>
-                    {c.phone && <div style={{ fontSize: 11, color: '#444' }}>{c.phone}</div>}
-                    {c.address && <div style={{ fontSize: 11, color: '#444' }}>{c.address}{c.city ? `, ${c.city}` : ''}</div>}
-                    {c.cnic && <div style={{ fontSize: 11, color: '#444' }}>CNIC: {c.cnic}</div>}
+                    {/* B2B and B2C carry different identifying fields — an agent
+                        needs their code and contact person, a pilgrim their CNIC. */}
+                    {isB2B ? (
+                        <>
+                            {c.agentCode && <div style={{ fontSize: 11, color: '#444' }}>Agent Code: <strong>{c.agentCode}</strong></div>}
+                            {c.contactPerson && <div style={{ fontSize: 11, color: '#444' }}>Attn: {c.contactPerson}</div>}
+                            {c.phone && <div style={{ fontSize: 11, color: '#444' }}>{c.phone}{c.whatsapp && c.whatsapp !== c.phone ? ` · WhatsApp ${c.whatsapp}` : ''}</div>}
+                            {c.email && <div style={{ fontSize: 11, color: '#444' }}>{c.email}</div>}
+                            {c.address && <div style={{ fontSize: 11, color: '#444' }}>{c.address}{c.city ? `, ${c.city}` : ''}</div>}
+                        </>
+                    ) : (
+                        <>
+                            {c.phone && <div style={{ fontSize: 11, color: '#444' }}>{c.phone}</div>}
+                            {c.address && <div style={{ fontSize: 11, color: '#444' }}>{c.address}{c.city ? `, ${c.city}` : ''}</div>}
+                            {c.cnic && <div style={{ fontSize: 11, color: '#444' }}>CNIC: {c.cnic}</div>}
+                            {c.passportNumber && <div style={{ fontSize: 11, color: '#444' }}>Passport: {c.passportNumber}</div>}
+                        </>
+                    )}
                 </div>
                 <div className="box">
                     <h3>Trip</h3>
@@ -58,26 +86,42 @@ export default function Invoice() {
 
             <table className="bordered">
                 <thead>
-                    <tr><th>Description</th><th style={{ width: 110, textAlign: 'right' }}>Amount (SAR)</th></tr>
+                    <tr><th>Description</th><th style={{ width: 130, textAlign: 'right' }}>Amount ({isFixed ? 'PKR' : 'SAR'})</th></tr>
                 </thead>
                 <tbody>
-                    {lines.map((l, i) => (
-                        <tr key={i}><td>{l.label}</td><td style={{ textAlign: 'right' }}>{formatSAR(l.amount)}</td></tr>
-                    ))}
-                    <tr><td><strong>Subtotal</strong></td><td style={{ textAlign: 'right' }}><strong>{formatSAR(pkg.pricingSummary?.subtotalSAR || 0)}</strong></td></tr>
-                    {pkg.pricingSummary?.markupAmountSAR > 0 && (
-                        <tr><td>Markup ({pkg.pricingSummary?.markupType}, {pkg.pricingSummary?.markupValue})</td><td style={{ textAlign: 'right' }}>{formatSAR(pkg.pricingSummary?.markupAmountSAR)}</td></tr>
+                    {isFixed ? (
+                        <>
+                            <tr>
+                                <td>{pkg.packageName} — fixed package, {pkg.numberOfPilgrims} pilgrim{pkg.numberOfPilgrims === 1 ? '' : 's'} × {formatPKR(perPaxPKR)}</td>
+                                <td style={{ textAlign: 'right' }}>{formatPKR(totalDuePKR)}</td>
+                            </tr>
+                            <tr><td><strong>Subtotal</strong></td><td style={{ textAlign: 'right' }}><strong>{formatPKR(totalDuePKR)}</strong></td></tr>
+                        </>
+                    ) : (
+                        <>
+                            {lines.map((l, i) => (
+                                <tr key={i}><td>{l.label}</td><td style={{ textAlign: 'right' }}>{formatSAR(l.amount)}</td></tr>
+                            ))}
+                            <tr><td><strong>Subtotal</strong></td><td style={{ textAlign: 'right' }}><strong>{formatSAR(pkg.pricingSummary?.subtotalSAR || 0)}</strong></td></tr>
+                            {pkg.pricingSummary?.markupAmountSAR > 0 && (
+                                <tr><td>Markup ({pkg.pricingSummary?.markupType}, {pkg.pricingSummary?.markupValue})</td><td style={{ textAlign: 'right' }}>{formatSAR(pkg.pricingSummary?.markupAmountSAR)}</td></tr>
+                            )}
+                        </>
                     )}
                 </tbody>
             </table>
 
             <table className="totals">
                 <tbody>
-                    <tr className="grand"><td>Total Due (SAR)</td><td>{formatSAR(totals.finalSAR)}</td></tr>
-                    <tr><td style={{ color: '#666' }}>In PKR (today's rate)</td><td style={{ color: '#666' }}>{formatPKR(convertToPKR(totals.finalSAR))}</td></tr>
-                    <tr><td>Paid (PKR)</td><td style={{ color: '#2e7d32' }}>{formatPKR(totals.totalPaidPKR + convertToPKR(totals.totalPaidSAR))}</td></tr>
+                    {/* PKR is the billed currency in every case. A fixed package
+                        has no SAR figure at all, so that row is omitted. */}
+                    <tr className="grand"><td>Total Due (PKR)</td><td>{formatPKR(totalDuePKR)}</td></tr>
+                    {!isFixed && totals.finalSAR > 0 && (
+                        <tr><td style={{ color: '#666' }}>Priced in SAR (converted at today's rate)</td><td style={{ color: '#666' }}>{formatSAR(totals.finalSAR)}</td></tr>
+                    )}
+                    <tr><td>Paid (PKR)</td><td style={{ color: '#2e7d32' }}>{formatPKR(paidTotalPKR)}</td></tr>
                     {totals.totalPaidSAR > 0 && <tr><td>(of which SAR)</td><td style={{ color: '#2e7d32' }}>{formatSAR(totals.totalPaidSAR)}</td></tr>}
-                    <tr className="balance"><td>Balance Due (PKR)</td><td>{formatPKR(Math.max(0, convertToPKR(totals.finalSAR) - totals.totalPaidPKR - convertToPKR(totals.totalPaidSAR)))}</td></tr>
+                    <tr className="balance"><td>Balance Due (PKR)</td><td>{formatPKR(totals.balancePKR)}</td></tr>
                 </tbody>
             </table>
 
