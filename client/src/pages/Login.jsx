@@ -68,7 +68,7 @@ export default function Login() {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 className="input pl-10"
-                                placeholder="admin@keusmania.com"
+                                placeholder="Enter your email address"
                                 required
                                 autoFocus
                             />
@@ -117,13 +117,6 @@ export default function Login() {
                             'Sign In'
                         )}
                     </button>
-
-                    {/* Demo credentials hint */}
-                    <div className="mt-6 p-3 bg-navy-50 rounded-lg">
-                        <p className="text-xs text-navy-800 text-center">
-                            <span className="font-semibold">Default Admin:</span> admin@keusmania.com / admin123
-                        </p>
-                    </div>
                 </form>
 
                 {/* Footer */}
