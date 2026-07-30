@@ -39,9 +39,13 @@ Render → **New → Web Service** → pick this repo, then:
 | Health Check Path | `/api/health` |
 | Instance Type | Free |
 
-Render pre-fills `yarn install; yarn build` — **replace it**. There is no `build`
-script (nothing to compile), the repo uses npm lockfiles, and leaving Root
-Directory blank builds the dependency-free repo root instead of the API.
+Build Command is **exactly** `npm install` — nothing appended. Render pre-fills
+`yarn install; yarn build`; there is no `build` script (nothing to compile), the
+repo uses npm lockfiles, and leaving Root Directory blank builds the
+dependency-free repo root instead of the API.
+
+The Node version comes from `engines` in `server/package.json` (pinned to the
+major used in local dev, so prod can't silently jump to a newer one).
 
 These settings are also declared in `render.yaml` at the repo root, which Render
 applies automatically if you create the service via **New → Blueprint** instead
