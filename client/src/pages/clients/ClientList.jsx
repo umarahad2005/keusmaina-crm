@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import DataTable from '../../components/DataTable';
 import FormModal from '../../components/FormModal';
 import StatusBadge from '../../components/StatusBadge';
@@ -31,16 +32,18 @@ export default function ClientList() {
     const [editId, setEditId] = useState(null);
     const [saving, setSaving] = useState(false);
 
-    const fetchData = async () => {
-        setLoading(true);
+    // `silent` is the auto-refresh path: no spinner, no error toast.
+    const fetchData = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
             const [b2c, b2b] = await Promise.all([api.get('/clients/b2c'), api.get('/clients/b2b')]);
             setB2cData(b2c.data.data);
             setB2bData(b2b.data.data);
-        } catch { toast.error('Failed to load clients'); }
-        finally { setLoading(false); }
+        } catch { if (!silent) toast.error('Failed to load clients'); }
+        finally { if (!silent) setLoading(false); }
     };
     useEffect(() => { fetchData(); }, []);
+    useAutoRefresh(() => fetchData({ silent: true }));
 
     const b2cColumns = [
         { key: 'fullName', label: 'Full Name' },

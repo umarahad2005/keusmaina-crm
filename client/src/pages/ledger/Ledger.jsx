@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
 import toast from 'react-hot-toast';
@@ -18,16 +19,18 @@ export default function Ledger() {
     const [summary, setSummary] = useState({ B2C: { totalDebit: 0, totalCredit: 0, balance: 0, count: 0 }, B2B: { totalDebit: 0, totalCredit: 0, balance: 0, count: 0 } });
     const [loading, setLoading] = useState(true);
 
-    const fetchData = async () => {
-        setLoading(true);
+    // `silent` is the auto-refresh path: no spinner, no error toast.
+    const fetchData = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
             const res = await api.get('/ledger/clients/list');
             setData(res.data.data.clients);
             setSummary(res.data.data.summary);
-        } catch { toast.error('Failed to load client ledgers'); }
-        finally { setLoading(false); }
+        } catch { if (!silent) toast.error('Failed to load client ledgers'); }
+        finally { if (!silent) setLoading(false); }
     };
     useEffect(() => { fetchData(); }, []);
+    useAutoRefresh(() => fetchData({ silent: true }));
 
     const b2cColumns = [
         { key: 'fullName', label: 'Pilgrim Name' },

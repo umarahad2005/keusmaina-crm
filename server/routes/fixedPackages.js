@@ -28,10 +28,7 @@ router.get('/', async (req, res) => {
         const items = await FixedPackage.find(q)
             .sort('-createdAt')
             .limit(limit)
-            .populate('supplier', 'name type')
-            .populate('components.airline', 'name flightNumber')
-            .populate('components.makkahHotel.hotel', 'name')
-            .populate('components.madinahHotel.hotel', 'name');
+            .populate('supplier', 'name type');
         res.json({ success: true, data: items, count: items.length });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
@@ -41,9 +38,6 @@ router.get('/:id', async (req, res) => {
     try {
         const item = await FixedPackage.findById(req.params.id)
             .populate('supplier', 'name type')
-            .populate('components.airline')
-            .populate('components.makkahHotel.hotel', 'name')
-            .populate('components.madinahHotel.hotel', 'name')
             .populate('components.ziyarats', 'name')
             .populate('components.transportation', 'typeName');
         if (!item) return res.status(404).json({ success: false, message: 'Fixed package not found' });
@@ -55,7 +49,6 @@ router.get('/:id', async (req, res) => {
 router.post('/', authorize(...PACKAGES), async (req, res) => {
     try {
         stripFields(req.body, FP_PROTECTED);
-        if (!req.body.components?.airline) delete req.body.components?.airline;
         req.body.createdBy = req.user._id;
         const item = await FixedPackage.create(req.body);
         res.status(201).json({ success: true, data: item });
@@ -122,7 +115,25 @@ router.post('/:id/sell', authorize(...PACKAGES), async (req, res) => {
             numberOfPilgrims: N,
             duration: fp.duration,
             travelDates: fp.travelDates,
-            components: fp.components,
+            // Snapshot the hand-typed airline/hotel names onto the package. This
+            // is a copy on purpose: once sold, the package must keep the details
+            // the client was quoted even if the fixed package is edited later.
+            // The ref fields stay empty — these are the supplier's, not ours.
+            components: {
+                airlineName: fp.components?.airlineName,
+                makkahHotel: {
+                    hotelName: fp.components?.makkahHotel?.hotelName,
+                    roomType: fp.components?.makkahHotel?.roomType,
+                    nights: fp.components?.makkahHotel?.nights || 0
+                },
+                madinahHotel: {
+                    hotelName: fp.components?.madinahHotel?.hotelName,
+                    roomType: fp.components?.madinahHotel?.roomType,
+                    nights: fp.components?.madinahHotel?.nights || 0
+                },
+                ziyarats: fp.components?.ziyarats || [],
+                transportation: fp.components?.transportation || []
+            },
             status: 'confirmed',
             pricingSummary: {
                 finalPricePKR: totalSell,

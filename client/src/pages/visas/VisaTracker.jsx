@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../utils/api';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import toast from 'react-hot-toast';
 import { MdSearch, MdWarning, MdEvent, MdAssignment } from 'react-icons/md';
 
@@ -33,8 +34,9 @@ export default function VisaTracker() {
     const [departureFrom, setDepartureFrom] = useState('');
     const [departureTo, setDepartureTo] = useState('');
 
-    const fetchData = async () => {
-        setLoading(true);
+    // `silent` is the auto-refresh path: no spinner, no error toast.
+    const fetchData = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
             const params = new URLSearchParams();
             if (statusFilter) params.set('status', statusFilter);
@@ -46,11 +48,12 @@ export default function VisaTracker() {
             setRows(res.data.data);
             setCounts(res.data.statusCounts || {});
             setFlagCounts(res.data.passportFlagCounts || {});
-        } catch { toast.error('Failed to load visa tracker'); }
-        finally { setLoading(false); }
+        } catch { if (!silent) toast.error('Failed to load visa tracker'); }
+        finally { if (!silent) setLoading(false); }
     };
 
     useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [statusFilter, packageStatus]);
+    useAutoRefresh(() => fetchData({ silent: true }));
 
     const onSearch = (e) => { e.preventDefault(); fetchData(); };
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import DataTable from '../../components/DataTable';
 import toast from 'react-hot-toast';
 import { MdVisibility, MdGroups, MdPrint } from 'react-icons/md';
@@ -17,11 +18,13 @@ export default function DepartureList() {
     const [loading, setLoading] = useState(true);
     const nav = useNavigate();
 
-    const fetchData = async () => {
-        try { setLoading(true); const res = await api.get('/departures'); setData(res.data.data); }
-        catch { toast.error('Failed to load departures'); } finally { setLoading(false); }
+    // `silent` is the auto-refresh path: no spinner, no error toast.
+    const fetchData = async ({ silent = false } = {}) => {
+        try { if (!silent) setLoading(true); const res = await api.get('/departures'); setData(res.data.data); }
+        catch { if (!silent) toast.error('Failed to load departures'); } finally { if (!silent) setLoading(false); }
     };
     useEffect(() => { fetchData(); }, []);
+    useAutoRefresh(() => fetchData({ silent: true }));
 
     const columns = [
         { key: 'code', label: 'Code', render: v => <span className="font-mono font-bold text-navy-800">{v}</span> },

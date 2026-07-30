@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../utils/api';
 import { useCurrency } from '../../context/CurrencyContext';
+import { airlineDetailText, hotelText } from '../../utils/packageDisplay';
 import PrintShell from './PrintShell';
 
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -53,13 +54,13 @@ export default function Voucher() {
                     <tr><th style={{ width: '22%' }}>Departure</th><td>{fmtDate(pkg.travelDates?.departure)}</td>
                         <th style={{ width: '15%' }}>Return</th><td>{fmtDate(pkg.travelDates?.returnDate)}</td></tr>
                     <tr><th>Flight</th>
-                        <td colSpan="3">{pkg.components?.airline ? `${pkg.components.airline.name} ${pkg.components.airline.flightNumber || ''} · ${pkg.components.airline.departureCity} → ${pkg.components.airline.arrivalCity} · ${pkg.components.airline.seatClass || ''}` : '—'}</td></tr>
+                        <td colSpan="3">{airlineDetailText(pkg.components) || '—'}</td></tr>
                     <tr><th>Makkah Hotel</th>
-                        <td>{pkg.components?.makkahHotel?.hotel?.name || '—'}</td>
+                        <td>{hotelText(pkg.components, 'makkah') || '—'}</td>
                         <th>Stay</th>
                         <td>{pkg.components?.makkahHotel?.roomType || '—'} · {pkg.components?.makkahHotel?.nights || 0} nights</td></tr>
                     <tr><th>Madinah Hotel</th>
-                        <td>{pkg.components?.madinahHotel?.hotel?.name || '—'}</td>
+                        <td>{hotelText(pkg.components, 'madinah') || '—'}</td>
                         <th>Stay</th>
                         <td>{pkg.components?.madinahHotel?.roomType || '—'} · {pkg.components?.madinahHotel?.nights || 0} nights</td></tr>
                     <tr><th>Ziyarats</th><td colSpan="3">{ziyarats}</td></tr>

@@ -82,11 +82,18 @@ const packageSchema = new mongoose.Schema({
     },
 
     // Component references
+    // The *Name fields are a frozen snapshot used by fixed-source packages,
+    // whose airline and hotels are typed by hand on the FixedPackage rather
+    // than referenced from inventory. Custom packages leave them empty and keep
+    // using the refs. Readers should prefer the populated ref and fall back to
+    // the name — see `componentNames()` in client/src/utils/packageDisplay.js.
     components: {
         airline: { type: mongoose.Schema.Types.ObjectId, ref: 'Airline' },
+        airlineName: { type: String, trim: true },
 
         makkahHotel: {
             hotel: { type: mongoose.Schema.Types.ObjectId, ref: 'HotelMakkah' },
+            hotelName: { type: String, trim: true },
             roomType: { type: String },
             nights: { type: Number, default: 0 },
             ratePerNightSAR: { type: Number, default: 0 }
@@ -94,6 +101,7 @@ const packageSchema = new mongoose.Schema({
 
         madinahHotel: {
             hotel: { type: mongoose.Schema.Types.ObjectId, ref: 'HotelMadinah' },
+            hotelName: { type: String, trim: true },
             roomType: { type: String },
             nights: { type: Number, default: 0 },
             ratePerNightSAR: { type: Number, default: 0 }

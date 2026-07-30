@@ -25,14 +25,19 @@ const fixedPackageSchema = new mongoose.Schema({
         returnDate: { type: Date }
     },
     components: {
-        airline: { type: mongoose.Schema.Types.ObjectId, ref: 'Airline' },
+        // Airline and hotels are typed by hand, NOT picked from our inventory.
+        // A fixed package is bought whole from the supplier: the seats and rooms
+        // are theirs, so the names here are whatever they tell us. Selecting from
+        // our own Airline/Hotel collections would wrongly imply we hold the
+        // allotment and would let inventory edits rewrite a sold package.
+        airlineName: { type: String, trim: true },
         makkahHotel: {
-            hotel: { type: mongoose.Schema.Types.ObjectId, ref: 'HotelMakkah' },
+            hotelName: { type: String, trim: true },
             roomType: { type: String },
             nights: { type: Number, default: 0 }
         },
         madinahHotel: {
-            hotel: { type: mongoose.Schema.Types.ObjectId, ref: 'HotelMadinah' },
+            hotelName: { type: String, trim: true },
             roomType: { type: String },
             nights: { type: Number, default: 0 }
         },

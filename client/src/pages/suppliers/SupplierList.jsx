@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
 import FormModal from '../../components/FormModal';
@@ -23,16 +24,18 @@ export default function SupplierList() {
     const { formatPKR } = useCurrency();
     const nav = useNavigate();
 
-    const fetchData = async () => {
+    // `silent` is the auto-refresh path: no spinner, no error toast.
+    const fetchData = async ({ silent = false } = {}) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const [list, sum] = await Promise.all([api.get('/suppliers'), api.get('/suppliers/summary')]);
             setData(list.data.data);
             setSummary(sum.data.data);
-        } catch { toast.error('Failed to load suppliers'); }
-        finally { setLoading(false); }
+        } catch { if (!silent) toast.error('Failed to load suppliers'); }
+        finally { if (!silent) setLoading(false); }
     };
     useEffect(() => { fetchData(); }, []);
+    useAutoRefresh(() => fetchData({ silent: true }));
 
     const columns = [
         { key: 'name', label: 'Name' },

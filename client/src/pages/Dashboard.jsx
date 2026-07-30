@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { MdInventory, MdPeople, MdAccountBalance, MdFlight, MdAttachMoney, MdTrendingUp } from 'react-icons/md';
 import api from '../utils/api';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 import { useCurrency } from '../context/CurrencyContext';
 
 const statDefs = [
@@ -18,23 +19,27 @@ export default function Dashboard() {
         packages: 0, pilgrims: 0, revenue: 0, outstanding: 0, agents: 0, clients: 0
     });
 
-    useEffect(() => {
-        const load = async () => {
-            try {
-                const res = await api.get('/reports/overview');
-                const { counts, financial } = res.data.data;
-                setData({
-                    packages: counts.packages,
-                    pilgrims: counts.b2cClients,
-                    revenue: financial.revenue,
-                    outstanding: financial.outstanding,
-                    agents: counts.b2bClients,
-                    clients: counts.b2cClients + counts.b2bClients
-                });
-            } catch { /* silently fail on dashboard */ }
-        };
-        load();
+    const load = useCallback(async () => {
+        try {
+            const res = await api.get('/reports/overview');
+            const { counts, financial } = res.data.data;
+            setData({
+                packages: counts.packages,
+                pilgrims: counts.b2cClients,
+                revenue: financial.revenue,
+                outstanding: financial.outstanding,
+                agents: counts.b2bClients,
+                clients: counts.b2cClients + counts.b2bClients
+            });
+        } catch { /* silently fail on dashboard */ }
     }, []);
+
+    // load() is async — its setData runs after the awaited request, not
+    // synchronously in the effect body, so the rule is a false positive here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    useEffect(() => { load(); }, [load]);
+    // Already silent — the dashboard swallows its own errors and never spins.
+    useAutoRefresh(load);
 
     return (
         <div>

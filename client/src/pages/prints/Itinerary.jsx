@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../utils/api';
+import { airlineText, hotelText } from '../../utils/packageDisplay';
 import PrintShell from './PrintShell';
 
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString('en-PK', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' }) : '—';
@@ -54,8 +55,8 @@ export default function Itinerary() {
                 <tbody>
                     <tr><th style={{ width: '20%' }}>Pilgrim(s)</th><td>{pkg.client?.fullName || pkg.client?.companyName || '—'} · {pkg.numberOfPilgrims} pax</td></tr>
                     <tr><th>Travel Window</th><td>{fmtDate(dep)} → {fmtDate(ret)}</td></tr>
-                    <tr><th>Flight</th><td>{pkg.components?.airline ? `${pkg.components.airline.name} ${pkg.components.airline.flightNumber || ''}` : '—'}</td></tr>
-                    <tr><th>Hotels</th><td>Makkah: {pkg.components?.makkahHotel?.hotel?.name || '—'} ({makkahNights} nights) · Madinah: {pkg.components?.madinahHotel?.hotel?.name || '—'} ({madinahNights} nights)</td></tr>
+                    <tr><th>Flight</th><td>{airlineText(pkg.components) || '—'}</td></tr>
+                    <tr><th>Hotels</th><td>Makkah: {hotelText(pkg.components, 'makkah') || '—'} ({makkahNights} nights) · Madinah: {hotelText(pkg.components, 'madinah') || '—'} ({madinahNights} nights)</td></tr>
                 </tbody>
             </table>
 

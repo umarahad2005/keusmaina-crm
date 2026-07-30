@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../utils/api';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
 import FormModal from '../../components/FormModal';
@@ -45,9 +46,10 @@ export default function Expenses() {
     const [cashAccounts, setCashAccounts] = useState([]);
     const { formatPKR } = useCurrency();
 
-    const fetchData = async () => {
+    // `silent` is the auto-refresh path: no spinner, no error toast.
+    const fetchData = async ({ silent = false } = {}) => {
         try {
-            setLoading(true);
+            if (!silent) setLoading(true);
             const params = filterCat === 'all' ? '' : `?category=${filterCat}`;
             const [list, sum, ca] = await Promise.all([
                 api.get(`/expenses${params}`),
@@ -57,10 +59,11 @@ export default function Expenses() {
             setData(list.data.data);
             setSummary(sum.data.data);
             setCashAccounts(ca.data.data || []);
-        } catch { toast.error('Failed to load expenses'); }
-        finally { setLoading(false); }
+        } catch { if (!silent) toast.error('Failed to load expenses'); }
+        finally { if (!silent) setLoading(false); }
     };
     useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, [filterCat]);
+    useAutoRefresh(() => fetchData({ silent: true }));
 
     const columns = [
         { key: 'date', label: 'Date', render: v => fmtDate(v) },
