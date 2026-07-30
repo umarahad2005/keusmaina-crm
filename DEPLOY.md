@@ -39,6 +39,14 @@ Render → **New → Web Service** → pick this repo, then:
 | Health Check Path | `/api/health` |
 | Instance Type | Free |
 
+Render pre-fills `yarn install; yarn build` — **replace it**. There is no `build`
+script (nothing to compile), the repo uses npm lockfiles, and leaving Root
+Directory blank builds the dependency-free repo root instead of the API.
+
+These settings are also declared in `render.yaml` at the repo root, which Render
+applies automatically if you create the service via **New → Blueprint** instead
+of **New → Web Service**.
+
 **Environment variables** (Render → Environment) — see `server/.env.example`:
 
 | Variable | Value |
@@ -121,6 +129,8 @@ If you don't set Cloudinary vars locally, uploads fall back to `server/uploads/`
 | DB connection error | Atlas Network Access must include `0.0.0.0/0`; check the `MONGO_URI` password |
 | 404 on page refresh | `client/vercel.json` provides the SPA fallback — confirm it's deployed |
 | Upload returns 503 "File storage is not configured" | Set the three `CLOUDINARY_*` vars on Render and redeploy |
+| Render build: `error Command "build" not found` | Root Directory must be `server` and Build Command `npm install` — not Render's default `yarn install; yarn build` |
+| Render deploy fails on health check | `/api/health` returns 503 until MongoDB connects — check `MONGO_URI` and Atlas Network Access |
 
 ---
 

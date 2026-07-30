@@ -62,7 +62,10 @@
       "Bash(git rm *)",
       "Bash(echo \"exit=$?\")",
       "Bash(node --check utils/upload.js)",
-      "Bash(RENDER=true CLOUDINARY_CLOUD_NAME= CLOUDINARY_API_KEY= CLOUDINARY_API_SECRET= node -e \"const u=require\\('./utils/upload'\\); console.log\\('CLOUDINARY_ENABLED=',u.CLOUDINARY_ENABLED\\); u.uploadSingle\\({},{},e=>console.log\\('upload blocked ->',e.statusCode,e.message\\)\\);\")"
+      "Bash(RENDER=true CLOUDINARY_CLOUD_NAME= CLOUDINARY_API_KEY= CLOUDINARY_API_SECRET= node -e \"const u=require\\('./utils/upload'\\); console.log\\('CLOUDINARY_ENABLED=',u.CLOUDINARY_ENABLED\\); u.uploadSingle\\({},{},e=>console.log\\('upload blocked ->',e.statusCode,e.message\\)\\);\")",
+      "Bash(gh repo *)",
+      "Bash(node -e \"console.log\\(Object.keys\\(require\\('./server/package.json'\\).scripts\\)\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('engines:',p.engines\\); console.log\\('scripts:',p.scripts\\); console.log\\('deps:',Object.keys\\(p.dependencies\\).length\\)\")"
     ]
   }
 }
