@@ -169,6 +169,7 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/packages', require('./routes/packages'));
 app.use('/api/fixed-packages', require('./routes/fixedPackages'));
 app.use('/api/clients', require('./routes/clients'));
+app.use('/api/client-groups', require('./routes/clientGroups'));
 app.use('/api/visas', require('./routes/visas'));
 app.use('/api/departures', require('./routes/departures'));
 app.use('/api/suppliers', require('./routes/suppliers'));

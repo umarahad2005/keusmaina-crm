@@ -2,6 +2,7 @@ const express = require('express');
 const LedgerEntry = require('../models/LedgerEntry');
 const ClientB2C = require('../models/ClientB2C');
 const ClientB2B = require('../models/ClientB2B');
+const ClientGroup = require('../models/ClientGroup');
 const CurrencySettings = require('../models/CurrencySettings');
 const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
@@ -320,6 +321,22 @@ router.post('/', authorize(...CAN_RECORD), async (req, res) => {
         if (!req.body.package) delete req.body.package;
         if (!req.body.departure) delete req.body.departure;
         if (!req.body.cashAccount) delete req.body.cashAccount;
+
+        // Billing a mini group posts to the group's payer. Resolving that here
+        // rather than trusting the client keeps the invariant server-side: an
+        // entry tagged with a group can never sit on someone outside it.
+        if (req.body.clientGroup) {
+            const group = await ClientGroup.findById(req.body.clientGroup).select('payer isActive');
+            if (!group || group.isActive === false) {
+                return res.status(400).json({ success: false, message: 'Mini group not found' });
+            }
+            req.body.client = group.payer;
+            req.body.clientModel = 'ClientB2C';
+            req.body.clientType = 'B2C';
+        } else {
+            delete req.body.clientGroup;
+        }
+
         const entry = await LedgerEntry.create(req.body);
         const populated = await LedgerEntry.findById(entry._id)
             .populate('client')

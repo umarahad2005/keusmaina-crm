@@ -27,6 +27,12 @@ const ledgerEntrySchema = new mongoose.Schema({
     clientModel: { type: String, enum: ['ClientB2C', 'ClientB2B'], required: true },
     clientType: { type: String, enum: ['B2C', 'B2B'], required: true },
 
+    // Optional mini group (family / small party settling as one account). The
+    // entry still posts to a real client — the group's payer — so every
+    // existing ledger and receivables query keeps working; this tag is what
+    // lets the receivables screen roll the family up into a single line.
+    clientGroup: { type: mongoose.Schema.Types.ObjectId, ref: 'ClientGroup' },
+
     // Linkage
     package: { type: mongoose.Schema.Types.ObjectId, ref: 'Package' },
     departure: { type: mongoose.Schema.Types.ObjectId, ref: 'Departure' },

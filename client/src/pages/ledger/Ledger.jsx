@@ -5,7 +5,8 @@ import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
 import toast from 'react-hot-toast';
-import { MdAccountBalance, MdTrendingUp, MdTrendingDown, MdVisibility, MdSearch } from 'react-icons/md';
+import MiniGroups from './MiniGroups';
+import { MdAccountBalance, MdTrendingUp, MdTrendingDown, MdVisibility, MdSearch, MdGroups } from 'react-icons/md';
 
 // Main ledger landing page: list of all clients (B2B + B2C tabs) with their
 // outstanding balance. Click a row to drill into that client's full ledger.
@@ -55,12 +56,13 @@ export default function Ledger() {
     ];
 
     const openLedger = (row) => nav(`/ledger/view/${tab}/${row._id}`);
-    const totals = summary[tab];
+    // The Mini Groups tab carries its own totals, and `summary` only has B2C/B2B.
+    const totals = summary[tab] || { count: 0, totalDebit: 0, totalCredit: 0, balance: 0 };
 
     return (
         <div>
-            {/* Summary cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4">
+            {/* Summary cards — client tabs only; groups show their own totals */}
+            <div className={`grid grid-cols-1 sm:grid-cols-4 gap-3 mb-4 ${tab === 'GROUP' ? 'hidden' : ''}`}>
                 <div className="stat-card">
                     <p className="stat-label">{tab} Clients</p>
                     <p className="stat-value text-navy-800">{totals.count}</p>
@@ -87,9 +89,14 @@ export default function Ledger() {
                 <button onClick={() => setTab('B2B')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'B2B' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     🏢 B2B Agents
                 </button>
+                <button onClick={() => setTab('GROUP')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1 ${tab === 'GROUP' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <MdGroups size={16} /> Mini Groups
+                </button>
             </div>
 
-            {tab === 'B2C' ? (
+            {tab === 'GROUP' ? (
+                <MiniGroups formatPKR={formatPKR} />
+            ) : tab === 'B2C' ? (
                 <DataTable
                     columns={b2cColumns}
                     data={data.B2C}
