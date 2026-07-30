@@ -3,11 +3,12 @@ import api from '../../utils/api';
 import { useCurrency } from '../../context/CurrencyContext';
 import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { buildReportModel, exportReportXLSX, exportReportDOC, exportReportPDF } from '../../utils/reportExport';
+import ClosingView from './ClosingView';
 import toast from 'react-hot-toast';
 import {
     MdInventory, MdPeople, MdAccountBalance, MdFlight, MdHotel,
     MdTrendingUp, MdTrendingDown, MdReceiptLong, MdShowChart,
-    MdGridOn, MdPictureAsPdf, MdDescription, MdLockClock, MdLockOpen
+    MdGridOn, MdPictureAsPdf, MdDescription, MdLockClock
 } from 'react-icons/md';
 
 const CAT_LABEL = {
