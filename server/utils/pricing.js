@@ -18,4 +18,22 @@ function packageSellPKR(pkg, sarToPkr) {
     return Math.round((pkg?.pricingSummary?.finalPriceSAR || 0) * (sarToPkr || 0));
 }
 
-module.exports = { packageSellPKR };
+// The same rule as a MongoDB aggregation expression, for report pipelines that
+// sum many packages at once. Kept beside packageSellPKR so the two can't drift:
+// if one changes, the other must.
+function packageSellPKRExpr(sarToPkr) {
+    return {
+        $cond: [
+            {
+                $or: [
+                    { $eq: ['$source', 'fixed'] },
+                    { $eq: ['$pricingSummary.rateFrozen', true] }
+                ]
+            },
+            { $ifNull: ['$pricingSummary.finalPricePKR', 0] },
+            { $multiply: [{ $ifNull: ['$pricingSummary.finalPriceSAR', 0] }, sarToPkr || 0] }
+        ]
+    };
+}
+
+module.exports = { packageSellPKR, packageSellPKRExpr };

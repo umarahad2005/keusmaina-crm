@@ -12,7 +12,7 @@ const HotelMakkah = require('../models/HotelMakkah');
 const HotelMadinah = require('../models/HotelMadinah');
 const { protect } = require('../middleware/auth');
 const { clampLimit } = require('../utils/sanitize');
-const { packageSellPKR } = require('../utils/pricing');
+const { packageSellPKR, packageSellPKRExpr } = require('../utils/pricing');
 const router = express.Router();
 
 router.use(protect);
@@ -155,11 +155,7 @@ router.get('/overview', async (req, res) => {
             { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] } } },
             { $group: {
                 _id: null,
-                sumPKR: { $sum: { $cond: [
-                    { $eq: ['$source', 'fixed'] },
-                    { $ifNull: ['$pricingSummary.finalPricePKR', 0] },
-                    { $multiply: [{ $ifNull: ['$pricingSummary.finalPriceSAR', 0] }, rate] }
-                ] } }
+                sumPKR: { $sum: packageSellPKRExpr(rate) }
             } }
         ]);
         const revenue = Math.round(bookedAgg[0]?.sumPKR || 0);
@@ -230,13 +226,7 @@ router.get('/pnl', async (req, res) => {
         // SAR. Summing finalPriceSAR alone valued every fixed-package sale at
         // zero while its supplier cost still landed in COGS — so selling from
         // fixed inventory showed up as pure loss.
-        const revenuePKRExpr = {
-            $cond: [
-                { $eq: ['$source', 'fixed'] },
-                { $ifNull: ['$pricingSummary.finalPricePKR', 0] },
-                { $multiply: [{ $ifNull: ['$pricingSummary.finalPriceSAR', 0] }, rate] }
-            ]
-        };
+        const revenuePKRExpr = packageSellPKRExpr(rate);
 
         const bookedAgg = await Package.aggregate([
             { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] }, createdAt: { $gte: from, $lt: to } } },

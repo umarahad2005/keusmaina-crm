@@ -65,7 +65,29 @@
       "Bash(RENDER=true CLOUDINARY_CLOUD_NAME= CLOUDINARY_API_KEY= CLOUDINARY_API_SECRET= node -e \"const u=require\\('./utils/upload'\\); console.log\\('CLOUDINARY_ENABLED=',u.CLOUDINARY_ENABLED\\); u.uploadSingle\\({},{},e=>console.log\\('upload blocked ->',e.statusCode,e.message\\)\\);\")",
       "Bash(gh repo *)",
       "Bash(node -e \"console.log\\(Object.keys\\(require\\('./server/package.json'\\).scripts\\)\\)\")",
-      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('engines:',p.engines\\); console.log\\('scripts:',p.scripts\\); console.log\\('deps:',Object.keys\\(p.dependencies\\).length\\)\")"
+      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\('engines:',p.engines\\); console.log\\('scripts:',p.scripts\\); console.log\\('deps:',Object.keys\\(p.dependencies\\).length\\)\")",
+      "Bash(node -e \"const p=require\\('./package.json'\\);console.log\\('engines:',JSON.stringify\\(p.engines\\)\\);console.log\\('local node:',process.version\\)\")",
+      "Bash(claude mcp *)",
+      "Bash(node -e 'const d=require\\(process.argv[1]\\);const p=d.find\\(x=>x.envVar.key==='\\\\''PORT'\\\\''\\);console.log\\('\\\\''PORT ='\\\\'',JSON.stringify\\(p.envVar.value\\)\\);' C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/env.json)",
+      "Bash(node -e 'console.log\\('\\\\''env vars now:'\\\\'', require\\(process.argv[1]\\).map\\(x=>x.envVar.key\\).sort\\(\\).join\\('\\\\'', '\\\\''\\)\\);' C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/env2.json)",
+      "Bash(git -c commit.gpgsign=false commit -q -F -)",
+      "Bash(node -e 'const d=require\\(process.argv[1]\\);console.log\\('\\\\''success:'\\\\'',d.success,'\\\\''| records:'\\\\'',Array.isArray\\(d.data\\)?d.data.length:JSON.stringify\\(d\\).slice\\(0,120\\)\\);' C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/b2c.json)",
+      "Bash(node C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/dbinspect.js)",
+      "Bash(node C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/dbwipe.js --dry-run)",
+      "Bash(STAMP=__CMDSUB_OUTPUT__ node C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/dbwipe.js --confirm)",
+      "Bash(node C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/dbverify.js)",
+      "Bash(npx eslint *)",
+      "Bash(node --check routes/fixedPackages.js)",
+      "Bash(node C:/Users/umara/AppData/Local/Temp/claude/D--personal-projects-keusmania-crm1-keusmania-crm/81cd77cc-1427-4d1e-b9c2-53aa96fbf7b9/scratchpad/schemacheck.js)",
+      "Bash(awk '/router.get\\\\\\(.\\\\/overview/,/^}\\\\\\);/' routes/reports.js)",
+      "Bash(awk '/pricingSummary: \\\\{/,/^    \\\\},/' server/models/Package.js)",
+      "Bash(sed -n '/const statDefs/,/\\\\];/p' client/src/pages/Dashboard.jsx)",
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(awk '/invoice-data/,/^}\\\\\\);/' routes/packages.js)",
+      "Bash(awk \"/router.get\\\\\\('\\\\/:id'/,/^}\\\\\\);/\" routes/ledger.js)",
+      "Bash(awk \"/router.post\\\\\\('\\\\/'/,/^}\\\\\\);/\" server/routes/airlines.js)",
+      "Bash(sed -i 's|req.body.ticketPricePKR = req.body.ticketPriceSAR \\\\* currency.sarToPkr;|// Convert at this airline'\"'\"'s own negotiated rate when it has one.\\\\n            req.body.ticketPricePKR = req.body.ticketPriceSAR * \\(Number\\(req.body.sarToPkrRate\\) > 0 ? Number\\(req.body.sarToPkrRate\\) : currency.sarToPkr\\);|g' routes/airlines.js)",
+      "Bash(node --check routes/airlines.js)"
     ]
   }
 }

@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import {
     MdInventory, MdPeople, MdAccountBalance, MdFlight, MdHotel,
     MdTrendingUp, MdTrendingDown, MdReceiptLong, MdShowChart,
-    MdGridOn, MdPictureAsPdf, MdDescription
+    MdGridOn, MdPictureAsPdf, MdDescription, MdLockClock, MdLockOpen
 } from 'react-icons/md';
 
 const CAT_LABEL = {
@@ -88,6 +88,9 @@ export default function Reports() {
                 <button onClick={() => setTab('overview')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'overview' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500'}`}>
                     📊 Overview
                 </button>
+                <button onClick={() => setTab('closing')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1 ${tab === 'closing' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500'}`}>
+                    <MdLockClock size={16} /> Closing
+                </button>
             </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
@@ -109,6 +112,7 @@ export default function Reports() {
 
             {tab === 'pnl' && pnl && <PnLView pnl={pnl} from={from} to={to} setFrom={setFrom} setTo={setTo} applyDates={applyDates} formatPKR={formatPKR} loading={loading} />}
             {tab === 'overview' && overview && <OverviewView overview={overview} formatPKR={formatPKR} />}
+            {tab === 'closing' && <ClosingView formatPKR={formatPKR} />}
         </div>
     );
 }
