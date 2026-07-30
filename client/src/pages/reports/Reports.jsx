@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import api from '../../utils/api';
 import { useCurrency } from '../../context/CurrencyContext';
+import useAutoRefresh from '../../hooks/useAutoRefresh';
+import { buildReportModel, exportReportXLSX, exportReportDOC, exportReportPDF } from '../../utils/reportExport';
 import toast from 'react-hot-toast';
 import {
     MdInventory, MdPeople, MdAccountBalance, MdFlight, MdHotel,
-    MdTrendingUp, MdTrendingDown, MdReceiptLong, MdShowChart
+    MdTrendingUp, MdTrendingDown, MdReceiptLong, MdShowChart,
+    MdGridOn, MdPictureAsPdf, MdDescription
 } from 'react-icons/md';
 
 const CAT_LABEL = {
@@ -48,6 +51,26 @@ export default function Reports() {
 
     const applyDates = async () => { setLoading(true); await fetchPnl(); setLoading(false); };
 
+    // Silent so a background refresh never blanks the report mid-read.
+    useAutoRefresh(() => Promise.all([fetchOverview(), fetchPnl()]));
+
+    // Every format renders the COMPLETE report — both tabs — regardless of
+    // which one is on screen, so a download is never a partial picture.
+    const [exporting, setExporting] = useState('');
+    const runExport = async (kind) => {
+        if (!pnl) { toast.error('Report is still loading'); return; }
+        setExporting(kind);
+        try {
+            const model = buildReportModel({ pnl, overview, from, to, catLabel: CAT_LABEL });
+            if (kind === 'xlsx') exportReportXLSX(model);
+            else if (kind === 'doc') exportReportDOC(model);
+            else await exportReportPDF(model);
+            toast.success(`${kind.toUpperCase()} downloaded`);
+        } catch (e) {
+            toast.error(`Export failed: ${e.message || kind}`);
+        } finally { setExporting(''); }
+    };
+
     if (loading && !pnl) return (
         <div className="flex items-center justify-center py-20">
             <div className="w-12 h-12 border-4 border-navy-800 border-t-gold-500 rounded-full animate-spin" />
@@ -56,14 +79,32 @@ export default function Reports() {
 
     return (
         <div>
-            {/* Tabs */}
-            <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
+            {/* Tabs + downloads */}
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+            <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
                 <button onClick={() => setTab('pnl')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1 ${tab === 'pnl' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500'}`}>
                     <MdShowChart size={16} /> Profit & Loss
                 </button>
                 <button onClick={() => setTab('overview')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'overview' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500'}`}>
                     📊 Overview
                 </button>
+            </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-500">Download full report:</span>
+                    <button onClick={() => runExport('xlsx')} disabled={!!exporting}
+                        className="btn-outline btn-sm flex items-center gap-1 disabled:opacity-50" title="Excel workbook — P&L, monthly trend and overview on separate sheets">
+                        <MdGridOn size={15} /> {exporting === 'xlsx' ? '…' : 'Excel'}
+                    </button>
+                    <button onClick={() => runExport('pdf')} disabled={!!exporting}
+                        className="btn-outline btn-sm flex items-center gap-1 disabled:opacity-50" title="PDF document">
+                        <MdPictureAsPdf size={15} /> {exporting === 'pdf' ? 'Building…' : 'PDF'}
+                    </button>
+                    <button onClick={() => runExport('doc')} disabled={!!exporting}
+                        className="btn-outline btn-sm flex items-center gap-1 disabled:opacity-50" title="Word document you can edit before sending">
+                        <MdDescription size={15} /> {exporting === 'doc' ? '…' : 'Word'}
+                    </button>
+                </div>
             </div>
 
             {tab === 'pnl' && pnl && <PnLView pnl={pnl} from={from} to={to} setFrom={setFrom} setTo={setTo} applyDates={applyDates} formatPKR={formatPKR} loading={loading} />}
@@ -224,10 +265,19 @@ function OverviewView({ overview, formatPKR }) {
     ];
     return (
         <div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+            {/* Booked and collected are different figures and were previously
+                both shown as "collected", which is what made this tab disagree
+                with Profit & Loss. Both are all-time here; P&L is date-filtered. */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                <div className="card bg-gradient-to-r from-gold-600 to-gold-500 text-white">
+                    <div className="p-6 flex items-center justify-between">
+                        <div><p className="text-white/80 text-sm">Revenue Booked (all time)</p><p className="text-3xl font-heading font-bold mt-1">{formatPKR(financial.revenue)}</p></div>
+                        <MdShowChart size={40} className="text-white/50" />
+                    </div>
+                </div>
                 <div className="card bg-gradient-to-r from-green-700 to-green-600 text-white">
                     <div className="p-6 flex items-center justify-between">
-                        <div><p className="text-green-100 text-sm">Total Revenue Collected</p><p className="text-3xl font-heading font-bold mt-1">{formatPKR(financial.revenue)}</p></div>
+                        <div><p className="text-green-100 text-sm">Cash Received (all time)</p><p className="text-3xl font-heading font-bold mt-1">{formatPKR(financial.cashReceived)}</p></div>
                         <MdTrendingUp size={40} className="text-green-200" />
                     </div>
                 </div>

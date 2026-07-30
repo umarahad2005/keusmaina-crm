@@ -7,7 +7,12 @@ import { useCurrency } from '../context/CurrencyContext';
 const statDefs = [
     { label: 'Active Packages', icon: MdInventory, color: 'bg-navy-800', textColor: 'text-navy-800', key: 'packages' },
     { label: 'Total Pilgrims', icon: MdPeople, color: 'bg-green-800', textColor: 'text-green-800', key: 'pilgrims' },
-    { label: 'Total Revenue', icon: MdAttachMoney, color: 'bg-gold-500', textColor: 'text-gold-600', key: 'revenue', isCurrency: true },
+    // Labelled by basis so these reconcile against Reports → Profit & Loss.
+    // "Booked" is accrual (confirmed/completed packages); "Received" is cash
+    // actually collected. Reports shows the same two figures for a date range,
+    // where the dashboard is all-time.
+    { label: 'Revenue (Booked)', icon: MdAttachMoney, color: 'bg-gold-500', textColor: 'text-gold-600', key: 'revenue', isCurrency: true },
+    { label: 'Cash Received', icon: MdAccountBalance, color: 'bg-emerald-600', textColor: 'text-emerald-600', key: 'cashReceived', isCurrency: true },
     { label: 'Outstanding', icon: MdTrendingUp, color: 'bg-red-500', textColor: 'text-red-600', key: 'outstanding', isCurrency: true },
     { label: 'B2B Agents', icon: MdAccountBalance, color: 'bg-indigo-600', textColor: 'text-indigo-600', key: 'agents' },
     { label: 'B2C Clients', icon: MdPeople, color: 'bg-teal-600', textColor: 'text-teal-600', key: 'clients' },
@@ -16,7 +21,7 @@ const statDefs = [
 export default function Dashboard() {
     const { formatPKR } = useCurrency();
     const [data, setData] = useState({
-        packages: 0, pilgrims: 0, revenue: 0, outstanding: 0, agents: 0, clients: 0
+        packages: 0, pilgrims: 0, revenue: 0, cashReceived: 0, outstanding: 0, agents: 0, clients: 0
     });
 
     const load = useCallback(async () => {
@@ -27,6 +32,7 @@ export default function Dashboard() {
                 packages: counts.packages,
                 pilgrims: counts.b2cClients,
                 revenue: financial.revenue,
+                cashReceived: financial.cashReceived,
                 outstanding: financial.outstanding,
                 agents: counts.b2bClients,
                 clients: counts.b2cClients + counts.b2bClients

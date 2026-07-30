@@ -121,20 +121,48 @@ router.get('/overview', async (req, res) => {
             HotelMadinah.countDocuments({ isActive: true })
         ]);
 
-        // Revenue & outstanding from ledger
-        const ledgerSummary = await LedgerEntry.aggregate([
+        // Cash received & outstanding from the client ledger.
+        //
+        // Ledger amounts are stored in the currency they were taken in, so they
+        // CANNOT be summed directly — doing that counted a SAR 1,000 payment as
+        // PKR 1,000 and made this figure disagree with the P&L report. Group by
+        // currency first, then convert, exactly as /pnl does.
+        const currency = await CurrencySettings.getRate();
+        const rate = currency.sarToPkr;
+
+        const ledgerByCurrency = await LedgerEntry.aggregate([
             { $match: { isActive: true } },
             {
                 $group: {
-                    _id: null,
+                    _id: '$currency',
                     totalDebit: { $sum: { $cond: [{ $eq: ['$type', 'debit'] }, '$amount', 0] } },
                     totalCredit: { $sum: { $cond: [{ $eq: ['$type', 'credit'] }, '$amount', 0] } }
                 }
             }
         ]);
+        let cashReceivedPKR = 0, billedPKR = 0;
+        for (const row of ledgerByCurrency) {
+            const mult = row._id === 'SAR' ? rate : 1;
+            cashReceivedPKR += (row.totalCredit || 0) * mult;
+            billedPKR += (row.totalDebit || 0) * mult;
+        }
+        cashReceivedPKR = Math.round(cashReceivedPKR);
+        const outstanding = Math.round(billedPKR - cashReceivedPKR);
 
-        const revenue = ledgerSummary[0]?.totalCredit || 0;
-        const outstanding = (ledgerSummary[0]?.totalDebit || 0) - revenue;
+        // Booked (accrual) revenue, all-time, using the same rule as the P&L
+        // report so the two screens can be reconciled against each other.
+        const bookedAgg = await Package.aggregate([
+            { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] } } },
+            { $group: {
+                _id: null,
+                sumPKR: { $sum: { $cond: [
+                    { $eq: ['$source', 'fixed'] },
+                    { $ifNull: ['$pricingSummary.finalPricePKR', 0] },
+                    { $multiply: [{ $ifNull: ['$pricingSummary.finalPriceSAR', 0] }, rate] }
+                ] } }
+            } }
+        ]);
+        const revenue = Math.round(bookedAgg[0]?.sumPKR || 0);
 
         // Package by type
         const packageByType = await Package.aggregate([
@@ -166,7 +194,10 @@ router.get('/overview', async (req, res) => {
             success: true,
             data: {
                 counts: { packages, b2cClients, b2bClients, airlines, hotelsMakkah, hotelsMadinah },
-                financial: { revenue, outstanding },
+                // `revenue` is booked/accrual and matches the P&L's Revenue
+                // (Booked) over an all-time window; `cashReceived` is what has
+                // actually come in. They are different numbers on purpose.
+                financial: { revenue, cashReceived: cashReceivedPKR, outstanding },
                 packageByType,
                 packageByStatus,
                 monthlyRevenue
@@ -193,13 +224,31 @@ router.get('/pnl', async (req, res) => {
 
         // ── Revenue ─────────────────────────────
         // Booked revenue from confirmed/completed packages created in window.
-        // Convert SAR → PKR at today's rate.
+        // This MUST follow the same rule as utils/pricing.js packageSellPKR: a
+        // fixed-source package carries a contracted PKR price and is never
+        // re-derived from the SAR rate, while a custom package converts from
+        // SAR. Summing finalPriceSAR alone valued every fixed-package sale at
+        // zero while its supplier cost still landed in COGS — so selling from
+        // fixed inventory showed up as pure loss.
+        const revenuePKRExpr = {
+            $cond: [
+                { $eq: ['$source', 'fixed'] },
+                { $ifNull: ['$pricingSummary.finalPricePKR', 0] },
+                { $multiply: [{ $ifNull: ['$pricingSummary.finalPriceSAR', 0] }, rate] }
+            ]
+        };
+
         const bookedAgg = await Package.aggregate([
             { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] }, createdAt: { $gte: from, $lt: to } } },
-            { $group: { _id: null, sumSAR: { $sum: '$pricingSummary.finalPriceSAR' }, count: { $sum: 1 } } }
+            { $group: {
+                _id: null,
+                sumPKR: { $sum: revenuePKRExpr },
+                sumSAR: { $sum: { $ifNull: ['$pricingSummary.finalPriceSAR', 0] } },
+                count: { $sum: 1 }
+            } }
         ]);
         const bookedSAR = bookedAgg[0]?.sumSAR || 0;
-        const bookedPKR = Math.round(bookedSAR * rate);
+        const bookedPKR = Math.round(bookedAgg[0]?.sumPKR || 0);
         const bookedCount = bookedAgg[0]?.count || 0;
 
         // Cash received = client ledger credits in window. Mixed currency:
@@ -264,7 +313,7 @@ router.get('/pnl', async (req, res) => {
             { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] }, createdAt: { $gte: seriesStart, $lt: to } } },
             { $group: {
                 _id: { y: { $year: '$createdAt' }, m: { $month: '$createdAt' } },
-                sumSAR: { $sum: '$pricingSummary.finalPriceSAR' }
+                sumPKR: { $sum: revenuePKRExpr }
             } }
         ]);
         const monthlyCogs = await SupplierLedger.aggregate([
@@ -278,7 +327,7 @@ router.get('/pnl', async (req, res) => {
 
         const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         const lookup = (arr, valueKey, mult = 1) => Object.fromEntries(arr.map(x => [`${x._id.y}-${String(x._id.m).padStart(2, '0')}`, Math.round((x[valueKey] || 0) * mult)]));
-        const bookedMap = lookup(monthlyBooked, 'sumSAR', rate);
+        const bookedMap = lookup(monthlyBooked, 'sumPKR'); // already PKR
         const cogsMap = lookup(monthlyCogs, 'total');
         const opexMap = lookup(monthlyOpex, 'total');
 
