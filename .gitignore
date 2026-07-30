@@ -32,3 +32,6 @@ npm-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Claude Code per-user settings (contains local absolute paths / permissions)
+.claude/settings.local.json
