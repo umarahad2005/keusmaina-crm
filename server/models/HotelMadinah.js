@@ -64,6 +64,13 @@ const hotelMadinahSchema = new mongoose.Schema({
         trim: true
     },
     roomTypes: [roomTypeSchema],
+    // SAR → PKR rate for THIS hotel. Rates are negotiated per source, so one
+    // may settle at 77 while another is 76, and the client is charged
+    // accordingly. Leave empty to use the global rate in Currency Settings.
+    sarToPkrRate: {
+        type: Number,
+        min: 0
+    },
     totalRooms: {
         type: Number,
         min: 0

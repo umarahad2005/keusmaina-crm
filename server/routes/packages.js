@@ -93,28 +93,40 @@ async function calculatePricing(components, numberOfPilgrims, markupType, markup
         madinahRatePerNightSAR: 0, madinahRateLabel: ''
     };
 
+    // Each inventory item may carry its own negotiated SAR→PKR rate (one source
+    // settles at 77, another at 76). Where an item has none, the global rate
+    // applies. Every rate actually used is frozen onto the package below so a
+    // later rate change can never rewrite an already-quoted price.
+    const rates = { default: rate, airline: rate, makkahHotel: rate, madinahHotel: rate };
+    const rateFor = (doc) => (doc?.sarToPkrRate > 0 ? doc.sarToPkrRate : rate);
+
     // Airline
     if (components.airline) {
         const airline = await Airline.findById(components.airline);
-        if (airline) pricing.airlineCostSAR = (airline.ticketPriceSAR || 0) * n;
+        if (airline) {
+            pricing.airlineCostSAR = (airline.ticketPriceSAR || 0) * n;
+            rates.airline = rateFor(airline);
+        }
     }
 
     // Makkah Hotel — pick the rate matching the travel date
     if (components.makkahHotel?.hotel) {
         const nights = components.makkahHotel.nights || 0;
-        const { rateSAR, period } = await resolveHotelRate(HotelMakkah, components.makkahHotel, departure);
+        const { rateSAR, period, source } = await resolveHotelRate(HotelMakkah, components.makkahHotel, departure);
         pricing.makkahRatePerNightSAR = rateSAR;
         pricing.makkahRateLabel = period?.label || '';
         pricing.makkahHotelCostSAR = rateSAR * nights;
+        rates.makkahHotel = rateFor(source);
     }
 
     // Madinah Hotel
     if (components.madinahHotel?.hotel) {
         const nights = components.madinahHotel.nights || 0;
-        const { rateSAR, period } = await resolveHotelRate(HotelMadinah, components.madinahHotel, departure);
+        const { rateSAR, period, source } = await resolveHotelRate(HotelMadinah, components.madinahHotel, departure);
         pricing.madinahRatePerNightSAR = rateSAR;
         pricing.madinahRateLabel = period?.label || '';
         pricing.madinahHotelCostSAR = rateSAR * nights;
+        rates.madinahHotel = rateFor(source);
     }
 
     // Ziyarats
@@ -140,7 +152,16 @@ async function calculatePricing(components, numberOfPilgrims, markupType, markup
 
     // Subtotal
     pricing.subtotalSAR = pricing.airlineCostSAR + pricing.makkahHotelCostSAR + pricing.madinahHotelCostSAR + pricing.ziyaratsCostSAR + pricing.transportCostSAR + pricing.servicesCostSAR;
-    pricing.subtotalPKR = Math.round(pricing.subtotalSAR * rate);
+
+    // Convert component by component at each item's own rate, rather than
+    // applying one blended rate to the SAR total. Ziyarats, transport and
+    // special services have no per-item rate and use the global one.
+    pricing.subtotalPKR = Math.round(
+        pricing.airlineCostSAR * rates.airline +
+        pricing.makkahHotelCostSAR * rates.makkahHotel +
+        pricing.madinahHotelCostSAR * rates.madinahHotel +
+        (pricing.ziyaratsCostSAR + pricing.transportCostSAR + pricing.servicesCostSAR) * rates.default
+    );
 
     // Markup
     pricing.markupType = markupType || 'fixed';
@@ -153,9 +174,17 @@ async function calculatePricing(components, numberOfPilgrims, markupType, markup
 
     // Final
     pricing.finalPriceSAR = pricing.subtotalSAR + pricing.markupAmountSAR;
-    pricing.finalPricePKR = Math.round(pricing.finalPriceSAR * rate);
+    // Markup is our own margin, not bought from anyone, so it converts at the
+    // global rate.
+    pricing.finalPricePKR = pricing.subtotalPKR + Math.round(pricing.markupAmountSAR * rates.default);
     pricing.costPerPersonSAR = n > 0 ? Math.round(pricing.finalPriceSAR / n) : 0;
     pricing.costPerPersonPKR = n > 0 ? Math.round(pricing.finalPricePKR / n) : 0;
+
+    // Freeze the rates used. `rateFrozen` tells packageSellPKR to bill the
+    // stored finalPricePKR instead of re-deriving it from today's global rate,
+    // so an already-quoted package never changes price under the client.
+    pricing.ratesUsed = rates;
+    pricing.rateFrozen = true;
 
     return pricing;
 }

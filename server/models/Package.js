@@ -131,7 +131,22 @@ const packageSchema = new mongoose.Schema({
         finalPriceSAR: { type: Number, default: 0 },
         finalPricePKR: { type: Number, default: 0 },
         costPerPersonSAR: { type: Number, default: 0 },
-        costPerPersonPKR: { type: Number, default: 0 }
+        costPerPersonPKR: { type: Number, default: 0 },
+
+        // The SAR→PKR rate actually applied to each component at costing time.
+        // Airlines and hotels can each carry their own negotiated rate, so a
+        // single package may mix 77 and 76. Recorded for audit and so the price
+        // can be explained later.
+        ratesUsed: {
+            default: { type: Number },
+            airline: { type: Number },
+            makkahHotel: { type: Number },
+            madinahHotel: { type: Number }
+        },
+        // Set when the package was costed with per-item rates. Tells
+        // utils/pricing.js packageSellPKR to bill the stored finalPricePKR
+        // rather than re-deriving it from today's global rate.
+        rateFrozen: { type: Boolean, default: false }
     },
 
     // Client assignment (the booker — for B2C this is usually the head pilgrim,

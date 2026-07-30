@@ -11,7 +11,7 @@ const emptyForm = {
     name: '', flightNumber: '', departureCity: '', departureAirportCode: '',
     arrivalCity: '', arrivalAirportCode: '',
     departureDateTime: '', arrivalDateTime: '', returnDateTime: '',
-    seatClass: 'Economy', ticketPriceSAR: '',
+    seatClass: 'Economy', ticketPriceSAR: '', sarToPkrRate: '',
     totalSeats: 0, soldSeats: 0,
     baggageAllowance: 23, transitDetails: '', notes: ''
 };
@@ -151,7 +151,19 @@ export default function Airlines() {
                     <div>
                         <label className="label">Ticket Price (SAR) *</label>
                         <input className="input" type="number" value={form.ticketPriceSAR} onChange={e => set('ticketPriceSAR', e.target.value)} placeholder="0" />
-                        {form.ticketPriceSAR && <p className="text-xs text-green-700 mt-1">≈ {formatPKR(convertToPKR(form.ticketPriceSAR))}</p>}
+                        {form.ticketPriceSAR && (
+                            <p className="text-xs text-green-700 mt-1">
+                                ≈ {Number(form.sarToPkrRate) > 0
+                                    ? formatPKR(Number(form.ticketPriceSAR) * Number(form.sarToPkrRate))
+                                    : formatPKR(convertToPKR(form.ticketPriceSAR))}
+                            </p>
+                        )}
+                    </div>
+                    <div>
+                        <label className="label">SAR Rate for this airline</label>
+                        <input className="input" type="number" step="0.01" min="0" value={form.sarToPkrRate}
+                            onChange={e => set('sarToPkrRate', e.target.value)} placeholder="Leave empty for default" />
+                        <p className="text-xs text-gray-500 mt-1">Overrides the global rate for this airline only.</p>
                     </div>
                     <div>
                         <label className="label">Baggage (kg)</label>

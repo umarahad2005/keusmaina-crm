@@ -12,7 +12,7 @@ const emptyRoom = () => ({ typeName: '', maxOccupancy: 4, mealPlan: 'Bed Only', 
 const emptyForm = () => ({
     name: '', starRating: 3, distanceFromMasjidNabawi: '',
     roomTypes: [emptyRoom()],
-    totalRooms: '', checkInPolicy: '', checkOutPolicy: '', notes: ''
+    totalRooms: '', sarToPkrRate: '', checkInPolicy: '', checkOutPolicy: '', notes: ''
 });
 
 const isoDate = (v) => v ? String(v).slice(0, 10) : '';
@@ -139,6 +139,10 @@ export default function HotelsMadinah() {
                         <input className="input" value={form.distanceFromMasjidNabawi} onChange={e => set('distanceFromMasjidNabawi', e.target.value)} placeholder="e.g. 300m / 7 min" /></div>
                     <div><label className="label">Total Rooms</label>
                         <input className="input" type="number" value={form.totalRooms} onChange={e => set('totalRooms', e.target.value)} /></div>
+                    <div><label className="label">SAR Rate for this hotel</label>
+                        <input className="input" type="number" step="0.01" min="0" value={form.sarToPkrRate}
+                            onChange={e => set('sarToPkrRate', e.target.value)} placeholder="Leave empty for default" />
+                        <p className="text-xs text-gray-500 mt-1">Overrides the global rate for this hotel only.</p></div>
                     <div><label className="label">Check-in Policy</label>
                         <input className="input" value={form.checkInPolicy} onChange={e => set('checkInPolicy', e.target.value)} /></div>
                     <div><label className="label">Check-out Policy</label>

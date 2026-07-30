@@ -101,7 +101,8 @@ router.post('/', authorize(...OPS), async (req, res) => {
     try {
         stripFields(req.body, AIRLINE_PROTECTED);
         const currency = await CurrencySettings.getRate();
-        req.body.ticketPricePKR = req.body.ticketPriceSAR * currency.sarToPkr;
+        // Convert at this airline's own negotiated rate when it has one.
+            req.body.ticketPricePKR = req.body.ticketPriceSAR * (Number(req.body.sarToPkrRate) > 0 ? Number(req.body.sarToPkrRate) : currency.sarToPkr);
         req.body.createdBy = req.user._id;
 
         const airline = await Airline.create(req.body);
@@ -117,7 +118,8 @@ router.put('/:id', authorize(...OPS), async (req, res) => {
         stripFields(req.body, AIRLINE_PROTECTED);
         if (req.body.ticketPriceSAR) {
             const currency = await CurrencySettings.getRate();
-            req.body.ticketPricePKR = req.body.ticketPriceSAR * currency.sarToPkr;
+            // Convert at this airline's own negotiated rate when it has one.
+            req.body.ticketPricePKR = req.body.ticketPriceSAR * (Number(req.body.sarToPkrRate) > 0 ? Number(req.body.sarToPkrRate) : currency.sarToPkr);
         }
         req.body.updatedBy = req.user._id;
 
