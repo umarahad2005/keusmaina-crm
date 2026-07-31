@@ -203,27 +203,65 @@ body { font-family: 'Segoe UI', Calibri, sans-serif; font-size: 11px; color: #11
 }
 
 // ── PDF ────────────────────────────────────────────────────────────────────
-export async function exportReportPDF(model) {
-    const { default: html2pdf } = await import('html2pdf.js');
+// Two things matter here and both were wrong before:
+//
+//  1. html2canvas renders by CLONING the target into an off-document iframe. Any
+//     positioning on the target is cloned with it — so an element parked at
+//     `position:fixed; left:-10000px` lands outside the clone's viewport and
+//     renders blank. The element handed to html2pdf must therefore be plain
+//     static flow; a wrapper does the hiding instead.
+//
+//  2. html2pdf's UMD build can come back as the function, as `.default`, or as
+//     `.default.default` depending on how the bundler applies CJS interop.
+//     Resolving only one shape works until it doesn't.
+const A4_WIDTH_PX = 794; // 210mm at 96dpi
 
-    // Render off-screen rather than hidden: html2canvas cannot measure an
-    // element with display:none, so it must be laid out but out of view.
-    const holder = document.createElement('div');
-    holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:794px;background:#fff;padding:24px;font-family:Segoe UI,Calibri,sans-serif;color:#111;';
-    holder.innerHTML = reportHTML(model, { forWord: false });
-    document.body.appendChild(holder);
+export async function exportReportPDF(model) {
+    const mod = await import('html2pdf.js');
+    const html2pdf = typeof mod === 'function' ? mod
+        : typeof mod.default === 'function' ? mod.default
+            : typeof mod.default?.default === 'function' ? mod.default.default
+                : null;
+    if (!html2pdf) throw new Error('PDF engine failed to load');
+
+    const wrapper = document.createElement('div');
+    // Only the WRAPPER is moved out of sight; the page itself stays in normal flow.
+    wrapper.style.cssText = `position:absolute;left:-${A4_WIDTH_PX * 2}px;top:0;width:${A4_WIDTH_PX}px;`;
+
+    const page = document.createElement('div');
+    page.style.cssText = `width:${A4_WIDTH_PX}px;background:#ffffff;padding:24px;box-sizing:border-box;font-family:'Segoe UI',Calibri,sans-serif;color:#111111;font-size:11px;`;
+    page.innerHTML = reportHTML(model, { forWord: false });
+
+    // Keep tables and their headings from being sliced across a page break.
+    for (const el of page.querySelectorAll('table, h2')) {
+        el.style.pageBreakInside = 'avoid';
+        el.style.breakInside = 'avoid';
+    }
+
+    wrapper.appendChild(page);
+    document.body.appendChild(wrapper);
 
     try {
         await html2pdf().set({
             margin: [10, 10, 12, 10],
             filename: `keusmania_report_${stamp()}.pdf`,
-            image: { type: 'jpeg', quality: 0.95 },
-            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: { mode: ['css', 'legacy'] },
-        }).from(holder).save();
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+                // Pin the capture box so it doesn't inherit the real window's
+                // scroll position or width.
+                windowWidth: A4_WIDTH_PX,
+                width: A4_WIDTH_PX,
+                scrollX: 0,
+                scrollY: 0
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+            pagebreak: { mode: ['css', 'legacy'], avoid: ['table', 'h2'] }
+        }).from(page).save();
     } finally {
-        document.body.removeChild(holder);
+        wrapper.remove();
     }
 }
 
