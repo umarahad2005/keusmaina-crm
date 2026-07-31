@@ -102,7 +102,9 @@ export default function ClosingView({ formatPKR }) {
                         <div className="stat-card">
                             <p className="stat-label">Revenue (Booked)</p>
                             <p className="stat-value text-green-700 text-base">{formatPKR(preview.revenuePKR)}</p>
-                            <p className="text-[11px] text-gray-500">{preview.packageCount} package(s)</p>
+                            <p className="text-[11px] text-gray-500">
+                                {preview.packageCount} package(s) · {preview.directChargeCount ?? 0} direct charge(s)
+                            </p>
                         </div>
                         <div className="stat-card">
                             <p className="stat-label">Supplier COGS</p>

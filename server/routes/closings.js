@@ -1,5 +1,4 @@
 const express = require('express');
-const Package = require('../models/Package');
 const SupplierLedger = require('../models/SupplierLedger');
 const Expense = require('../models/Expense');
 const CurrencySettings = require('../models/CurrencySettings');
@@ -7,7 +6,7 @@ const ProfitClosing = require('../models/ProfitClosing');
 const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
 const { FINANCE } = require('../middleware/roles');
-const { packageSellPKRExpr } = require('../utils/pricing');
+const { bookedRevenuePKR } = require('../utils/revenue');
 const router = express.Router();
 
 router.use(protect);
@@ -30,11 +29,8 @@ async function computeMonth(periodMonth) {
     const { from, to } = monthWindow(periodMonth);
     const currency = await CurrencySettings.getRate();
 
-    const [revAgg, cogsAgg, opexAgg] = await Promise.all([
-        Package.aggregate([
-            { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] }, createdAt: { $gte: from, $lt: to } } },
-            { $group: { _id: null, total: { $sum: packageSellPKRExpr(currency.sarToPkr) }, count: { $sum: 1 } } }
-        ]),
+    const [booked, cogsAgg, opexAgg] = await Promise.all([
+        bookedRevenuePKR({ from, to, rate: currency.sarToPkr }),
         SupplierLedger.aggregate([
             { $match: { type: 'debit', date: { $gte: from, $lt: to } } },
             { $group: { _id: null, total: { $sum: '$amountPKR' } } }
@@ -45,14 +41,15 @@ async function computeMonth(periodMonth) {
         ])
     ]);
 
-    const revenuePKR = Math.round(revAgg[0]?.total || 0);
+    const revenuePKR = booked.totalPKR;
     const cogsPKR = Math.round(cogsAgg[0]?.total || 0);
     const opexPKR = Math.round(opexAgg[0]?.total || 0);
 
     return {
         periodMonth, periodFrom: from, periodTo: to,
         revenuePKR, cogsPKR, opexPKR,
-        packageCount: revAgg[0]?.count || 0,
+        packageCount: booked.packageCount,
+        directChargeCount: booked.directCount,
         netProfitPKR: revenuePKR - cogsPKR - opexPKR
     };
 }

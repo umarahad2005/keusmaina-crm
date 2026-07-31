@@ -12,7 +12,8 @@ const HotelMakkah = require('../models/HotelMakkah');
 const HotelMadinah = require('../models/HotelMadinah');
 const { protect } = require('../middleware/auth');
 const { clampLimit } = require('../utils/sanitize');
-const { packageSellPKR, packageSellPKRExpr } = require('../utils/pricing');
+const { packageSellPKR } = require('../utils/pricing');
+const { bookedRevenuePKR, monthlyBookedRevenuePKR } = require('../utils/revenue');
 const router = express.Router();
 
 router.use(protect);
@@ -149,16 +150,9 @@ router.get('/overview', async (req, res) => {
         cashReceivedPKR = Math.round(cashReceivedPKR);
         const outstanding = Math.round(billedPKR - cashReceivedPKR);
 
-        // Booked (accrual) revenue, all-time, using the same rule as the P&L
-        // report so the two screens can be reconciled against each other.
-        const bookedAgg = await Package.aggregate([
-            { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] } } },
-            { $group: {
-                _id: null,
-                sumPKR: { $sum: packageSellPKRExpr(rate) }
-            } }
-        ]);
-        const revenue = Math.round(bookedAgg[0]?.sumPKR || 0);
+        // Booked (accrual) revenue, all-time, through the same helper the P&L
+        // and the month-end closing use, so the screens cannot disagree.
+        const revenue = (await bookedRevenuePKR({ rate })).totalPKR;
 
         // Package by type
         const packageByType = await Package.aggregate([
@@ -226,20 +220,15 @@ router.get('/pnl', async (req, res) => {
         // SAR. Summing finalPriceSAR alone valued every fixed-package sale at
         // zero while its supplier cost still landed in COGS — so selling from
         // fixed inventory showed up as pure loss.
-        const revenuePKRExpr = packageSellPKRExpr(rate);
+        const booked = await bookedRevenuePKR({ from, to, rate });
+        const bookedPKR = booked.totalPKR;
+        const bookedCount = booked.packageCount + booked.directCount;
 
-        const bookedAgg = await Package.aggregate([
+        const sarAgg = await Package.aggregate([
             { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] }, createdAt: { $gte: from, $lt: to } } },
-            { $group: {
-                _id: null,
-                sumPKR: { $sum: revenuePKRExpr },
-                sumSAR: { $sum: { $ifNull: ['$pricingSummary.finalPriceSAR', 0] } },
-                count: { $sum: 1 }
-            } }
+            { $group: { _id: null, sumSAR: { $sum: { $ifNull: ['$pricingSummary.finalPriceSAR', 0] } } } }
         ]);
-        const bookedSAR = bookedAgg[0]?.sumSAR || 0;
-        const bookedPKR = Math.round(bookedAgg[0]?.sumPKR || 0);
-        const bookedCount = bookedAgg[0]?.count || 0;
+        const bookedSAR = sarAgg[0]?.sumSAR || 0;
 
         // Cash received = client ledger credits in window. Mixed currency:
         // PKR amounts pass through, SAR amounts convert at today's rate.
@@ -299,13 +288,7 @@ router.get('/pnl', async (req, res) => {
         seriesStart.setDate(1);
         seriesStart.setHours(0, 0, 0, 0);
 
-        const monthlyBooked = await Package.aggregate([
-            { $match: { isActive: true, status: { $in: ['confirmed', 'completed'] }, createdAt: { $gte: seriesStart, $lt: to } } },
-            { $group: {
-                _id: { y: { $year: '$createdAt' }, m: { $month: '$createdAt' } },
-                sumPKR: { $sum: revenuePKRExpr }
-            } }
-        ]);
+        const bookedMapByMonth = await monthlyBookedRevenuePKR({ from: seriesStart, to, rate });
         const monthlyCogs = await SupplierLedger.aggregate([
             { $match: { type: 'debit', date: { $gte: seriesStart, $lt: to } } },
             { $group: { _id: { y: { $year: '$date' }, m: { $month: '$date' } }, total: { $sum: '$amountPKR' } } }
@@ -317,7 +300,7 @@ router.get('/pnl', async (req, res) => {
 
         const keyOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         const lookup = (arr, valueKey, mult = 1) => Object.fromEntries(arr.map(x => [`${x._id.y}-${String(x._id.m).padStart(2, '0')}`, Math.round((x[valueKey] || 0) * mult)]));
-        const bookedMap = lookup(monthlyBooked, 'sumPKR'); // already PKR
+        const bookedMap = bookedMapByMonth; // already PKR, packages + direct charges
         const cogsMap = lookup(monthlyCogs, 'total');
         const opexMap = lookup(monthlyOpex, 'total');
 

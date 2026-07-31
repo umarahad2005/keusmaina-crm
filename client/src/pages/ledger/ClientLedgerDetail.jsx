@@ -103,6 +103,18 @@ export default function ClientLedgerDetail() {
     useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [id, clientType, queryString]);
 
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+    // Does actual cash move? A charge is our invoice — nothing has been paid
+    // yet. Payments do, and so do refunds (which the category forces to debit).
+    const isMoneyMovement = form.type === 'credit' || form.category === 'refund';
+
+    // Switching to a charge clears any bank/cheque detail already typed, so a
+    // half-filled reference can't be saved against an invoice.
+    const setType = (v) => setForm(f => (
+        v === 'debit' && f.category !== 'refund'
+            ? { ...f, type: v, referenceNumber: '', paymentMethod: 'cash' }
+            : { ...f, type: v }
+    ));
     const setFilter = (k, v) => setFilters(f => ({ ...f, [k]: v }));
 
     const handleAdd = () => { setForm(emptyEntry(clientType, id)); setModal(true); };
@@ -356,10 +368,10 @@ export default function ClientLedgerDetail() {
                             </div>
                         ) : (
                             <>
-                                <button type="button" onClick={() => set('type', 'debit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'debit' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                <button type="button" onClick={() => setType('debit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'debit' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                                     🔴 Charge (what we sold / billed)
                                 </button>
-                                <button type="button" onClick={() => set('type', 'credit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'credit' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                                <button type="button" onClick={() => setType('credit')} className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all ${form.type === 'credit' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
                                     🟢 Payment (what they paid)
                                 </button>
                             </>
@@ -382,14 +394,31 @@ export default function ClientLedgerDetail() {
                         }}>
                             {CATEGORIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                         </select></div>
-                    <div><label className="label">Payment Method</label>
-                        <select className="select" value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>
-                            <option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option>
-                            <option value="online">Online</option><option value="cheque">Cheque</option>
-                            <option value="adjustment">Adjustment</option>
-                        </select></div>
-                    <div><label className="label">Reference #</label>
-                        <input className="input" value={form.referenceNumber} onChange={e => set('referenceNumber', e.target.value)} placeholder="Bank ref / Cheque # / Invoice #" /></div>
+                    {/* How money moved only makes sense for money that moved. A
+                        charge is the invoice we raise — there is no bank
+                        transfer or cheque behind it yet, so asking for a method
+                        and a reference here invited meaningless data. These
+                        appear on payments (and refunds, which do move cash). */}
+                    {isMoneyMovement ? (
+                        <>
+                            <div><label className="label">Payment Method *</label>
+                                <select className="select" value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>
+                                    <option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option>
+                                    <option value="online">Online</option><option value="cheque">Cheque</option>
+                                    <option value="adjustment">Adjustment</option>
+                                </select></div>
+                            <div><label className="label">
+                                {form.paymentMethod === 'cheque' ? 'Cheque #' : form.paymentMethod === 'bank_transfer' ? 'Bank Reference #' : 'Reference #'}
+                            </label>
+                                <input className="input" value={form.referenceNumber} onChange={e => set('referenceNumber', e.target.value)}
+                                    placeholder={form.paymentMethod === 'cheque' ? 'Cheque number' : form.paymentMethod === 'bank_transfer' ? 'Transfer / slip reference' : 'Optional reference'} /></div>
+                        </>
+                    ) : (
+                        <div className="sm:col-span-2 p-2 rounded-lg bg-navy-50 text-[11px] text-navy-800">
+                            This is a charge — your invoice to the client. Bank and reference details
+                            are asked for when you record the payment against it.
+                        </div>
+                    )}
 
                     <div className="sm:col-span-2"><label className="label">Description *</label>
                         <input className="input" value={form.description} onChange={e => set('description', e.target.value)} placeholder={form.type === 'debit' ? 'e.g. Package UMR-0034 — 4 pax, full payment plan' : 'e.g. 1st installment via HBL'} /></div>
