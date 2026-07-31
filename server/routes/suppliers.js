@@ -15,7 +15,7 @@ router.use(auditMiddleware('Supplier'));
 const SUPPLIER_PROTECTED = [...PROTECTED_FIELDS, 'isActive'];
 const SUPPLIER_LEDGER_PROTECTED = [...PROTECTED_FIELDS, 'amountPKR', 'supplier'];
 
-const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * rate : Number(amount);
+const { applyEntryFx } = require('../utils/fx');
 
 async function balanceFor(supplierId) {
     const sup = await Supplier.findById(supplierId);
@@ -181,9 +181,10 @@ router.post('/:id/ledger', authorize(...FINANCE), async (req, res) => {
         const entryBody = {
             ...req.body,
             supplier: req.params.id,
-            createdBy: req.user._id,
-            amountPKR: toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr)
+            createdBy: req.user._id
         };
+        // Converts at this entry's own rate when one was given, else the global.
+        applyEntryFx(entryBody, currency.sarToPkr);
         if (!entryBody.package) delete entryBody.package;
         if (!entryBody.departure) delete entryBody.departure;
         // A credit is a payment we actually made to the supplier, so it must

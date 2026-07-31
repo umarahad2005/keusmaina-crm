@@ -14,7 +14,7 @@ router.use(auditMiddleware('Expense'));
 // amountPKR is derived server-side; isActive changes only via DELETE.
 const EXPENSE_PROTECTED = [...PROTECTED_FIELDS, 'amountPKR', 'isActive'];
 
-const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * rate : Number(amount);
+const { applyEntryFx } = require('../utils/fx');
 
 // GET /api/expenses
 router.get('/', async (req, res) => {
@@ -101,7 +101,7 @@ router.post('/', authorize(...FINANCE), async (req, res) => {
         }
         stripFields(req.body, EXPENSE_PROTECTED);
         const currency = await CurrencySettings.getRate();
-        req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr);
+        applyEntryFx(req.body, currency.sarToPkr);
         req.body.createdBy = req.user._id;
         // An expense is always money leaving the business, so it must name the
         // account it left from — otherwise cash and bank balances drift away
@@ -121,7 +121,7 @@ router.put('/:id', authorize(...FINANCE), async (req, res) => {
         stripFields(req.body, EXPENSE_PROTECTED);
         if (req.body.amount !== undefined) {
             const currency = await CurrencySettings.getRate();
-            req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr);
+            applyEntryFx(req.body, currency.sarToPkr);
         }
         req.body.updatedBy = req.user._id;
         const e = await Expense.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });

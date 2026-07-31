@@ -17,20 +17,7 @@ router.use(auditMiddleware('LedgerEntry'));
 const CAN_RECORD = ['admin', 'accounts', 'sales'];
 const CAN_EDIT = ['admin', 'accounts'];
 
-// A SAR charge converts at whatever rate this entry was agreed at — NOT
-// automatically the global one. The global rate is what we buy riyals at;
-// clients are frequently billed at a different, higher rate. Silently applying
-// the buying rate under-billed the client and left the ledger disagreeing with
-// the invoice that was actually sent.
-const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * rate : Number(amount);
-
-// Resolve the rate for one entry: an explicit override when supplied and sane,
-// otherwise the global rate. Returned so it can be stored on the entry and the
-// figure can be explained later.
-const resolveEntryRate = (body, globalRate) => {
-    const override = Number(body.exchangeRate);
-    return Number.isFinite(override) && override > 0 ? override : globalRate;
-};
+const { toPKR, applyEntryFx } = require('../utils/fx');
 
 // Enforce the cash-movement rules on a ledger entry body (shared by POST/PUT).
 // Returns an error string if the entry is invalid, otherwise mutates `body`.
@@ -328,11 +315,7 @@ router.post('/', authorize(...CAN_RECORD), async (req, res) => {
         const currency = await CurrencySettings.getRate();
         req.body.createdBy = req.user._id;
         delete req.body.updatedBy;
-        const entryRate = resolveEntryRate(req.body, currency.sarToPkr);
-        req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', entryRate);
-        // Record the rate actually applied, so a past charge can always be
-        // explained and never silently re-derived from a rate that has moved.
-        req.body.exchangeRate = (req.body.currency === 'SAR') ? entryRate : undefined;
+        applyEntryFx(req.body, currency.sarToPkr);
 
         const ruleErr = applyCashRules(req.body, {
             category: req.body.category,
@@ -381,9 +364,16 @@ router.put('/:id', authorize(...CAN_EDIT), async (req, res) => {
             const currency = await CurrencySettings.getRate();
             const amt = req.body.amount ?? existing.amount;
             const cur = req.body.currency ?? existing.currency ?? 'PKR';
-            const rate = resolveEntryRate(req.body, currency.sarToPkr);
-            req.body.amountPKR = toPKR(amt, cur, rate);
-            req.body.exchangeRate = cur === 'SAR' ? rate : undefined;
+            // Amount/currency may be partial on an edit, so resolve against the
+            // stored entry first, then convert once.
+            const fx = {
+                amount: amt,
+                currency: cur,
+                exchangeRate: req.body.exchangeRate ?? existing.exchangeRate
+            };
+            applyEntryFx(fx, currency.sarToPkr);
+            req.body.amountPKR = fx.amountPKR;
+            req.body.exchangeRate = fx.exchangeRate;
         }
 
         // Re-apply the cash-movement rules against the merged (existing + patch) view.

@@ -44,7 +44,7 @@ const emptyFilters = { dateFrom: '', dateTo: '', type: '', paymentMethod: '', pa
 export default function SupplierDetail() {
     const { id } = useParams();
     const nav = useNavigate();
-    const { formatPKR } = useCurrency();
+    const { formatPKR, sarToPkr } = useCurrency();
     const [sup, setSup] = useState(null);
     const [loading, setLoading] = useState(true);
     const [packages, setPackages] = useState([]);
@@ -119,6 +119,8 @@ export default function SupplierDetail() {
         catch { toast.error('Failed'); }
     };
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+    // Each party deals at their own rate; blank falls back to the global one.
+    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : (sarToPkr || 0);
     const setFilter = (k, v) => setFilters(f => ({ ...f, [k]: v }));
 
     if (loading || !sup) return <div className="flex items-center justify-center py-20"><div className="w-10 h-10 border-4 border-navy-800 border-t-gold-500 rounded-full animate-spin" /></div>;
@@ -337,6 +339,25 @@ export default function SupplierDetail() {
                         <select className="select" value={form.currency} onChange={e => set('currency', e.target.value)}>
                             <option>PKR</option><option>SAR</option>
                         </select></div>
+                    {form.currency === 'SAR' && (
+                        <div className="sm:col-span-2 p-3 rounded-lg bg-gold-50 border border-gold-200">
+                            <label className="label text-gold-800">Rate for this entry (PKR per SAR)</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
+                                <input className="input" type="number" step="0.01" min="0"
+                                    value={form.exchangeRate}
+                                    onChange={e => set('exchangeRate', e.target.value)}
+                                    placeholder={`Leave empty for ${sarToPkr}`} />
+                                <div className="text-sm">
+                                    <span className="text-gray-600">Converts to </span>
+                                    <b className="text-navy-800">{formatPKR(Number(form.amount || 0) * effectiveRate)}</b>
+                                    <div className="text-[11px] text-gray-500">
+                                        {Number(form.amount || 0).toLocaleString()} SAR × {effectiveRate}
+                                        {!form.exchangeRate && ' (global rate)'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <div><label className="label">Date</label>
                         <input className="input" type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
                     <div><label className="label">Method</label>

@@ -31,6 +31,10 @@ const expenseSchema = new mongoose.Schema({
     amount: { type: Number, required: true, min: 0 },
     currency: { type: String, enum: ['PKR', 'SAR'], default: 'PKR' },
     amountPKR: { type: Number }, // converted at entry time
+    // SAR->PKR rate applied to THIS entry. Each client and supplier deals at
+    // their own rate, so it is settable per entry; blank uses the global rate.
+    // Stored so an old entry can be explained and never re-derived later.
+    exchangeRate: { type: Number, min: 0 },
 
     paymentMethod: {
         type: String,

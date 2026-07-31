@@ -44,7 +44,7 @@ export default function Expenses() {
     const [docEntry, setDocEntry] = useState(null);
     const [filterCat, setFilterCat] = useState('all');
     const [cashAccounts, setCashAccounts] = useState([]);
-    const { formatPKR } = useCurrency();
+    const { formatPKR, sarToPkr } = useCurrency();
 
     // `silent` is the auto-refresh path: no spinner, no error toast.
     const fetchData = async ({ silent = false } = {}) => {
@@ -109,6 +109,8 @@ export default function Expenses() {
         finally { setSaving(false); }
     };
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+    // Each party deals at their own rate; blank falls back to the global one.
+    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : (sarToPkr || 0);
 
     return (
         <div>
@@ -176,6 +178,25 @@ export default function Expenses() {
                         <select className="select" value={form.currency} onChange={e => set('currency', e.target.value)}>
                             <option>PKR</option><option>SAR</option>
                         </select></div>
+                    {form.currency === 'SAR' && (
+                        <div className="sm:col-span-2 p-3 rounded-lg bg-gold-50 border border-gold-200">
+                            <label className="label text-gold-800">Rate for this entry (PKR per SAR)</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
+                                <input className="input" type="number" step="0.01" min="0"
+                                    value={form.exchangeRate}
+                                    onChange={e => set('exchangeRate', e.target.value)}
+                                    placeholder={`Leave empty for ${sarToPkr}`} />
+                                <div className="text-sm">
+                                    <span className="text-gray-600">Converts to </span>
+                                    <b className="text-navy-800">{formatPKR(Number(form.amount || 0) * effectiveRate)}</b>
+                                    <div className="text-[11px] text-gray-500">
+                                        {Number(form.amount || 0).toLocaleString()} SAR × {effectiveRate}
+                                        {!form.exchangeRate && ' (global rate)'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <div><label className="label">Payment Method</label>
                         <select className="select" value={form.paymentMethod} onChange={e => set('paymentMethod', e.target.value)}>
                             <option value="cash">Cash</option>
