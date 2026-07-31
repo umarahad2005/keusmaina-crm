@@ -5,12 +5,16 @@ import { useCurrency } from '../../context/CurrencyContext';
 import toast from 'react-hot-toast';
 import {
     MdArrowBack, MdTrendingUp, MdTrendingDown, MdAccountBalance,
-    MdFilterList, MdClose, MdPersonOutline, MdStorefront, MdReceiptLong
+    MdFilterList, MdClose, MdPersonOutline, MdStorefront, MdReceiptLong, MdSwapHoriz
 } from 'react-icons/md';
 
 const TYPE_LABEL = { cash: '💵 Cash', bank: '🏦 Bank', wallet: '📱 Wallet', card: '💳 Card', other: 'Other' };
-const SOURCE_ICON = { client: MdPersonOutline, supplier: MdStorefront, expense: MdReceiptLong };
-const SOURCE_LABEL = { client: 'Client', supplier: 'Supplier', expense: 'Expense' };
+const SOURCE_ICON = { client: MdPersonOutline, supplier: MdStorefront, expense: MdReceiptLong, transfer: MdSwapHoriz };
+const SOURCE_LABEL = { client: 'Client', supplier: 'Supplier', expense: 'Expense', transfer: 'Transfer' };
+// Fall back rather than render `undefined` as a component — an unmapped source
+// would otherwise take the whole page down.
+const iconFor = (src) => SOURCE_ICON[src] || MdAccountBalance;
+const labelFor = (src) => SOURCE_LABEL[src] || src || '—';
 
 const fmtDate = (v) => v ? new Date(v).toLocaleDateString('en-PK', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
 
@@ -114,6 +118,7 @@ export default function CashAccountDetail() {
                                     <option value="client">Client</option>
                                     <option value="supplier">Supplier</option>
                                     <option value="expense">Expense</option>
+                                    <option value="transfer">Transfer</option>
                                 </select></div>
                             <div><label className="label text-xs">Direction</label>
                                 <select className="select text-xs" value={filters.direction} onChange={e => setFilter('direction', e.target.value)}>
@@ -146,11 +151,11 @@ export default function CashAccountDetail() {
                                 </thead>
                                 <tbody>
                                     {filteredTxns.map(t => {
-                                        const Icon = SOURCE_ICON[t.source];
+                                        const Icon = iconFor(t.source);
                                         return (
                                             <tr key={`${t.source}-${t._id}`}>
                                                 <td className="text-sm">{fmtDate(t.date)}</td>
-                                                <td><span className="flex items-center gap-1 text-xs"><Icon size={14} /> {SOURCE_LABEL[t.source]}</span></td>
+                                                <td><span className="flex items-center gap-1 text-xs"><Icon size={14} /> {labelFor(t.source)}</span></td>
                                                 <td className="text-sm font-semibold">{t.party}<div className="text-[10px] text-gray-500">{t.partyMeta}</div></td>
                                                 <td className="text-xs">{t.description}{t.reference && <div className="text-[10px] text-gray-500">Ref: {t.reference}</div>}</td>
                                                 <td className="text-xs font-mono">{t.linked || '—'}</td>

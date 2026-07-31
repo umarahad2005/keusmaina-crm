@@ -6,6 +6,7 @@ const LedgerEntry = require('../models/LedgerEntry');
 const SupplierLedger = require('../models/SupplierLedger');
 const Expense = require('../models/Expense');
 const CashAccount = require('../models/CashAccount');
+const CashTransfer = require('../models/CashTransfer');
 const CurrencySettings = require('../models/CurrencySettings');
 const Airline = require('../models/Airline');
 const HotelMakkah = require('../models/HotelMakkah');
@@ -423,7 +424,7 @@ router.get('/accounts-dashboard', async (req, res) => {
         //   client credit → in, client debit (refund) → out;
         //   supplier credit (we paid) → out, supplier debit (refund to us) → in;
         //   expense → out.
-        const [cashClient, cashSup, cashExp] = await Promise.all([
+        const [cashClient, cashSup, cashExp, xferOut, xferIn] = await Promise.all([
             LedgerEntry.aggregate([
                 { $match: { isActive: true, cashAccount: { $in: accountIds } } },
                 { $group: {
@@ -443,12 +444,26 @@ router.get('/accounts-dashboard', async (req, res) => {
             Expense.aggregate([
                 { $match: { isActive: true, cashAccount: { $in: accountIds } } },
                 { $group: { _id: '$cashAccount', outflow: { $sum: { $ifNull: ['$amountPKR', '$amount'] } } } }
+            ]),
+            // Internal transfers move money between our own accounts. They are
+            // not income or expense, so they never touch the P&L figures below
+            // — but they absolutely change where the cash sits, and this page
+            // has to agree with the Cash & Bank screen.
+            CashTransfer.aggregate([
+                { $match: { isActive: true, fromAccount: { $in: accountIds } } },
+                { $group: { _id: '$fromAccount', outflow: { $sum: '$amountPKR' } } }
+            ]),
+            CashTransfer.aggregate([
+                { $match: { isActive: true, toAccount: { $in: accountIds } } },
+                { $group: { _id: '$toAccount', inflow: { $sum: '$amountPKR' } } }
             ])
         ]);
         const accBal = new Map(accounts.map(a => [String(a._id), { ...a, inflow: 0, outflow: 0 }]));
         cashClient.forEach(r => { const x = accBal.get(String(r._id)); if (x) { x.inflow += r.inflow; x.outflow += r.outflow; } });
         cashSup.forEach(r => { const x = accBal.get(String(r._id)); if (x) { x.outflow += r.outflow; x.inflow += r.inflow; } });
         cashExp.forEach(r => { const x = accBal.get(String(r._id)); if (x) x.outflow += r.outflow; });
+        xferOut.forEach(r => { const x = accBal.get(String(r._id)); if (x) x.outflow += r.outflow; });
+        xferIn.forEach(r => { const x = accBal.get(String(r._id)); if (x) x.inflow += r.inflow; });
         const cashByAccount = Array.from(accBal.values()).map(a => ({
             _id: a._id, name: a.name, type: a.type,
             balancePKR: (a.openingBalancePKR || 0) + a.inflow - a.outflow
