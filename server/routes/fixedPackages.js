@@ -6,6 +6,7 @@ const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
 const { PACKAGES } = require('../middleware/roles');
 const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
+const { ensurePackageCharge } = require('../utils/packageCharge');
 const router = express.Router();
 
 router.use(protect);
@@ -147,7 +148,11 @@ router.post('/:id/sell', authorize(...PACKAGES), async (req, res) => {
             createdBy: req.user._id
         });
 
-        // 2. Record what we owe the supplier as a payable (supplier-ledger debit),
+        // 2. Raise the client's receivable, linked to the package, so the
+        //    invoice and their ledger agree and payments land against it.
+        await ensurePackageCharge(pkg, req.user._id);
+
+        // 3. Record what we owe the supplier as a payable (supplier-ledger debit),
         //    linked to the package so the existing profit report nets it out.
         await SupplierLedger.create({
             supplier: fp.supplier,

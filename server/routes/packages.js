@@ -14,6 +14,7 @@ const { PACKAGES, VISA } = require('../middleware/roles');
 const { qStr, clampLimit, safeSearchRegex, stripFields, PROTECTED_FIELDS } = require('../utils/sanitize');
 const { applyAirlineDelta, checkAirlineCapacity, hotelAvailability } = require('../utils/allotment');
 const { packageSellPKR } = require('../utils/pricing');
+const { ensurePackageCharge } = require('../utils/packageCharge');
 const { uploadSingle, buildDocFromUpload, deleteUploadedFile } = require('../utils/upload');
 const router = express.Router();
 
@@ -595,6 +596,8 @@ router.post('/', authorize(...PACKAGES), async (req, res) => {
 
         const pkg = await Package.create(req.body);
         await applyAirlineDelta(null, pkg);
+        // A package can be created already sold, so raise the receivable here too.
+        await ensurePackageCharge(pkg, req.user._id);
         res.status(201).json({ success: true, data: pkg });
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
@@ -634,6 +637,7 @@ router.put('/:id', authorize(...PACKAGES), async (req, res) => {
         if (oldPkg.source === 'fixed') {
             req.body.updatedBy = req.user._id;
             const entry = await Package.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true }).populate('client');
+            await ensurePackageCharge(entry, req.user._id);
             return res.json({ success: true, data: entry });
         }
 
@@ -678,6 +682,8 @@ router.put('/:id', authorize(...PACKAGES), async (req, res) => {
 
         const pkg = await Package.findByIdAndUpdate(req.params.id, req.body, { new: true, runValidators: true });
         await applyAirlineDelta(oldPkg, pkg);
+        // Raise (or correct, while unpaid) the client's receivable for the sale.
+        await ensurePackageCharge(pkg, req.user._id);
         res.json({ success: true, data: pkg });
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }
 });
@@ -732,6 +738,8 @@ router.patch('/bulk-status', authorize(...PACKAGES), async (req, res) => {
             if (!oldPkg) continue;
             const pkg = await Package.findByIdAndUpdate(id, { status, updatedBy: req.user._id }, { new: true });
             await applyAirlineDelta(oldPkg, pkg);
+            // Advancing to a sold status raises the client's receivable.
+            await ensurePackageCharge(pkg, req.user._id);
             updates.push(pkg._id);
         }
         res.json({ success: true, updated: updates.length, ids: updates });
