@@ -186,7 +186,16 @@ router.post('/:id/ledger', authorize(...FINANCE), async (req, res) => {
         };
         if (!entryBody.package) delete entryBody.package;
         if (!entryBody.departure) delete entryBody.departure;
-        if (!entryBody.cashAccount) delete entryBody.cashAccount;
+        // A credit is a payment we actually made to the supplier, so it must
+        // name the account it went out of. A debit is their invoice — no money
+        // has moved yet, so it must not carry an account.
+        if (entryBody.type === 'credit') {
+            if (!entryBody.cashAccount) {
+                return res.status(400).json({ success: false, message: 'Select the cash/bank account this payment was made from' });
+            }
+        } else {
+            delete entryBody.cashAccount;
+        }
 
         const entry = await SupplierLedger.create(entryBody);
         res.status(201).json({ success: true, data: entry });

@@ -96,6 +96,9 @@ export default function Expenses() {
     };
     const handleSubmit = async () => {
         if (!form.amount || !form.description) { toast.error('Amount & description required'); return; }
+        // An expense is always money leaving, so it must name the account it
+        // left from or the cash balance can never be reconciled.
+        if (!form.cashAccount) { toast.error('Select the account this expense was paid from'); return; }
         setSaving(true);
         try {
             if (editId) await api.put(`/expenses/${editId}`, form);
@@ -183,12 +186,12 @@ export default function Expenses() {
                             <option value="adjustment">Adjustment</option>
                         </select></div>
                     <div className="sm:col-span-2 p-3 bg-red-50 rounded-lg border border-red-200">
-                        <label className="label text-red-800">💸 Paid From Account (recommended)</label>
+                        <label className="label text-red-800">💸 Paid From Account *</label>
                         <select className="select text-sm" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
-                            <option value="">— Not tracked —</option>
+                            <option value="">— Select account —</option>
                             {cashAccounts.map(a => <option key={a._id} value={a._id}>{a.name} {a.bankName ? `(${a.bankName})` : ''}</option>)}
                         </select>
-                        <p className="text-[10px] text-red-700 mt-1">Pick the account this money came from. Lets the cash balance auto-update.</p>
+                        <p className="text-[10px] text-red-700 mt-1">Required — the account this money left, so the cash balance stays correct.</p>
                     </div>
                 </div>
                 <div><label className="label">Notes</label>

@@ -103,7 +103,12 @@ router.post('/', authorize(...FINANCE), async (req, res) => {
         const currency = await CurrencySettings.getRate();
         req.body.amountPKR = toPKR(req.body.amount, req.body.currency || 'PKR', currency.sarToPkr);
         req.body.createdBy = req.user._id;
-        if (!req.body.cashAccount) delete req.body.cashAccount;
+        // An expense is always money leaving the business, so it must name the
+        // account it left from — otherwise cash and bank balances drift away
+        // from reality and cannot be reconciled.
+        if (!req.body.cashAccount) {
+            return res.status(400).json({ success: false, message: 'Select the cash/bank account this expense was paid from' });
+        }
         const e = await Expense.create(req.body);
         res.status(201).json({ success: true, data: e });
     } catch (error) { res.status(400).json({ success: false, message: error.message }); }

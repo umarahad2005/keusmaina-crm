@@ -120,7 +120,10 @@ export default function ClientLedgerDetail() {
     const handleAdd = () => { setForm(emptyEntry(clientType, id)); setModal(true); };
     const handleSubmit = async () => {
         if (!form.amount || !form.description) { toast.error('Amount & description required'); return; }
+        // Every real movement of money has to name the account it moved through,
+        // or the cash and bank balances can never be reconciled.
         if (form.category === 'refund' && !form.cashAccount) { toast.error('Select which account to refund from'); return; }
+        if (form.type === 'credit' && !form.cashAccount) { toast.error('Select the account the payment was received into'); return; }
         setSaving(true);
         try {
             await api.post('/ledger', form);
@@ -437,10 +440,10 @@ export default function ClientLedgerDetail() {
                     {(form.type === 'credit' || form.category === 'refund') && (
                         <div className={`sm:col-span-2 p-3 rounded-lg border ${form.category === 'refund' ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
                             <label className={`label ${form.category === 'refund' ? 'text-red-800' : 'text-green-800'}`}>
-                                {form.category === 'refund' ? '↩️ Refund FROM Account *' : '💰 Received Into Account (recommended)'}
+                                {form.category === 'refund' ? '↩️ Refund FROM Account *' : '💰 Received Into Account *'}
                             </label>
                             <select className="select text-sm" value={form.cashAccount} onChange={e => set('cashAccount', e.target.value)}>
-                                <option value="">{form.category === 'refund' ? '— Select account —' : '— Not tracked —'}</option>
+                                <option value="">— Select account —</option>
                                 {cashAccounts.map(a => <option key={a._id} value={a._id}>{a.name} {a.bankName ? `(${a.bankName})` : ''}</option>)}
                             </select>
                             <p className={`text-[10px] mt-1 ${form.category === 'refund' ? 'text-red-700' : 'text-green-700'}`}>

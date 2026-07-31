@@ -26,10 +26,16 @@ const toPKR = (amount, currency, rate) => currency === 'SAR' ? Number(amount) * 
 //   • normal charge (debit, non-refund) → no cash moves, so it can't carry a
 //     cash account. Clearing it keeps the balance math honest.
 //   • payment (credit) → keep the chosen account (money in).
+// Every movement of real money must name the account it moved through,
+// otherwise the cash and bank balances drift away from what actually happened
+// and can never be reconciled. A charge is only an invoice — no money has moved
+// — so it must NOT carry an account.
 function applyCashRules(body, { category, type, cashAccount }) {
     if (category === 'refund') {
         body.type = 'debit';
-        if (!cashAccount) return 'Select the cash/bank account to refund from';
+        if (!cashAccount) return 'Select the cash/bank account the refund is paid from';
+    } else if (type === 'credit') {
+        if (!cashAccount) return 'Select the cash/bank account the payment was received into';
     } else if (type === 'debit') {
         body.cashAccount = null;
     }
