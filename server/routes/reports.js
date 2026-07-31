@@ -202,12 +202,30 @@ router.get('/overview', async (req, res) => {
 // over a date range. Booked revenue uses package createdAt as the period
 // anchor; all PKR conversion is at today's rate so old records don't drift.
 // ──────────────────────────────────────────────────────────
+// Turn an inclusive 'YYYY-MM-DD' end date into the exclusive upper bound of a
+// half-open window: the start of the following day. Dates arrive date-only and
+// parse as UTC midnight, so the arithmetic stays in UTC to match.
+function endOfDayBoundary(value) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    d.setUTCHours(0, 0, 0, 0);
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d;
+}
+
 router.get('/pnl', async (req, res) => {
     try {
         const now = new Date();
         const defaultFrom = new Date(now.getFullYear(), 0, 1); // Jan 1 of current year
         const from = req.query.from ? new Date(req.query.from) : defaultFrom;
-        const to = req.query.to ? new Date(req.query.to) : new Date(now.getFullYear() + 1, 0, 1);
+        // The "To" date the user picks is INCLUSIVE — picking 31 July means
+        // "up to and including 31 July". Every window below is half-open
+        // ($lt), so the boundary has to be the START OF THE NEXT DAY. Using the
+        // picked date directly silently dropped everything dated on the final
+        // day: invoices raised that day disappeared from COGS while the sale
+        // still counted, which inflated the profit and made this report
+        // disagree with the Accounts Dashboard.
+        const to = req.query.to ? endOfDayBoundary(req.query.to) : new Date(now.getFullYear() + 1, 0, 1);
 
         const currency = await CurrencySettings.getRate();
         const rate = currency.sarToPkr;
