@@ -43,6 +43,11 @@ const ledgerEntrySchema = new mongoose.Schema({
     amount: { type: Number, required: true, min: 0 },
     currency: { type: String, enum: ['SAR', 'PKR'], default: 'PKR' },
     amountPKR: { type: Number }, // converted at entry time, for cross-currency reports
+    // The SAR->PKR rate actually applied to THIS entry. Defaults to the global
+    // rate but can be overridden per charge, because the rate we buy riyals at
+    // is not necessarily the rate we bill a client at. Stored so an old charge
+    // can be explained and is never re-derived from a rate that has since moved.
+    exchangeRate: { type: Number, min: 0 },
 
     // What the charge / payment was for
     category: {

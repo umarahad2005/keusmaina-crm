@@ -42,6 +42,7 @@ const emptyEntry = (clientType, clientId) => ({
     type: 'debit',
     amount: '',
     currency: 'PKR',
+    exchangeRate: '',   // blank = use the global rate
     paymentMethod: 'cash',
     category: 'package_sale',
     date: today(),
@@ -58,7 +59,7 @@ const emptyFilters = { dateFrom: '', dateTo: '', type: '', paymentMethod: '', pa
 export default function ClientLedgerDetail() {
     const { clientType, id } = useParams();
     const nav = useNavigate();
-    const { formatPKR } = useCurrency();
+    const { formatPKR, sarToPkr } = useCurrency();
 
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -107,6 +108,11 @@ export default function ClientLedgerDetail() {
     // Does actual cash move? A charge is our invoice — nothing has been paid
     // yet. Payments do, and so do refunds (which the category forces to debit).
     const isMoneyMovement = form.type === 'credit' || form.category === 'refund';
+
+    // Blank rate means "use the global one" — shown live so the PKR figure is
+    // never a surprise after saving.
+    const globalRate = sarToPkr || 0;
+    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : globalRate;
 
     // Switching to a charge clears any bank/cheque detail already typed, so a
     // half-filled reference can't be saved against an invoice.
@@ -387,6 +393,28 @@ export default function ClientLedgerDetail() {
                         <select className="select" value={form.currency} onChange={e => set('currency', e.target.value)}>
                             <option>PKR</option><option>SAR</option>
                         </select></div>
+                    {/* The rate we BUY riyals at is not necessarily the rate we
+                        BILL a client at. Leaving this blank uses the global
+                        rate; set it to bill this charge at your own rate. */}
+                    {form.currency === 'SAR' && (
+                        <div className="sm:col-span-2 p-3 rounded-lg bg-gold-50 border border-gold-200">
+                            <label className="label text-gold-800">Rate for this entry (PKR per SAR)</label>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
+                                <input className="input" type="number" step="0.01" min="0"
+                                    value={form.exchangeRate}
+                                    onChange={e => set('exchangeRate', e.target.value)}
+                                    placeholder={`Leave empty for ${globalRate}`} />
+                                <div className="text-sm">
+                                    <span className="text-gray-600">Converts to </span>
+                                    <b className="text-navy-800">{formatPKR(Number(form.amount || 0) * effectiveRate)}</b>
+                                    <div className="text-[11px] text-gray-500">
+                                        {Number(form.amount || 0).toLocaleString()} SAR × {effectiveRate}
+                                        {!form.exchangeRate && ' (global rate)'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     <div><label className="label">Date</label>
                         <input className="input" type="date" value={form.date} onChange={e => set('date', e.target.value)} /></div>
                     <div><label className="label">Category</label>
