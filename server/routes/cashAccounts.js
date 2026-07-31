@@ -4,6 +4,7 @@ const CashAccount = require('../models/CashAccount');
 const LedgerEntry = require('../models/LedgerEntry');
 const SupplierLedger = require('../models/SupplierLedger');
 const Expense = require('../models/Expense');
+const CashTransfer = require('../models/CashTransfer');
 const { protect, authorize } = require('../middleware/auth');
 const { auditMiddleware } = require('../middleware/auditLog');
 const router = express.Router();
@@ -49,12 +50,28 @@ async function buildBalanceMap() {
         ])
     ]);
 
+    // Internal transfers move money between our own accounts: out of one, into
+    // the other. They are NOT income or expense, which is exactly why they live
+    // in their own collection and never touch the profit reports.
+    const [transferOut, transferIn] = await Promise.all([
+        CashTransfer.aggregate([
+            { $match: { isActive: true } },
+            { $group: { _id: '$fromAccount', outflow: { $sum: '$amountPKR' } } }
+        ]),
+        CashTransfer.aggregate([
+            { $match: { isActive: true } },
+            { $group: { _id: '$toAccount', inflow: { $sum: '$amountPKR' } } }
+        ])
+    ]);
+
     const map = new Map();
     const ensure = (id) => { const k = String(id); if (!map.has(k)) map.set(k, { inflow: 0, outflow: 0 }); return map.get(k); };
 
     clientAgg.forEach(r => { const b = ensure(r._id); b.inflow += r.inflow; b.outflow += r.outflow; });
     supplierAgg.forEach(r => { const b = ensure(r._id); b.outflow += r.outflow; b.inflow += r.inflow; });
     expenseAgg.forEach(r => { const b = ensure(r._id); b.outflow += r.outflow; });
+    transferOut.forEach(r => { const b = ensure(r._id); b.outflow += r.outflow; });
+    transferIn.forEach(r => { const b = ensure(r._id); b.inflow += r.inflow; });
     return map;
 }
 
@@ -116,7 +133,7 @@ router.get('/:id', async (req, res) => {
             if (dateTo) { const e = new Date(dateTo); e.setHours(23, 59, 59, 999); dateMatch.date.$lte = e; }
         }
 
-        const [clientRows, supplierRows, expenseRows] = await Promise.all([
+        const [clientRows, supplierRows, expenseRows, transferRows] = await Promise.all([
             LedgerEntry.find({ cashAccount: oid, isActive: true, ...dateMatch })
                 .populate('client', 'fullName companyName agentCode')
                 .populate('package', 'voucherId')
@@ -125,7 +142,11 @@ router.get('/:id', async (req, res) => {
                 .populate('supplier', 'name type')
                 .populate('package', 'voucherId')
                 .lean(),
-            Expense.find({ cashAccount: oid, isActive: true, ...dateMatch }).lean()
+            Expense.find({ cashAccount: oid, isActive: true, ...dateMatch }).lean(),
+            CashTransfer.find({ isActive: true, $or: [{ fromAccount: oid }, { toAccount: oid }], ...dateMatch })
+                .populate('fromAccount', 'name type')
+                .populate('toAccount', 'name type')
+                .lean()
         ]);
 
         // Normalize to a unified shape
@@ -162,7 +183,24 @@ router.get('/:id', async (req, res) => {
                 reference: r.referenceNumber,
                 amount: r.amount, currency: r.currency, amountPKR: r.amountPKR ?? r.amount,
                 linked: null
-            }))
+            })),
+            // One transfer produces one row per account it touches: an outflow
+            // on the source, an inflow on the destination.
+            ...transferRows.map(r => {
+                const outgoing = String(r.fromAccount?._id || r.fromAccount) === String(oid);
+                const other = outgoing ? r.toAccount : r.fromAccount;
+                return {
+                    _id: r._id, source: 'transfer', type: outgoing ? 'debit' : 'credit',
+                    direction: outgoing ? 'out' : 'in',
+                    date: r.date,
+                    party: other?.name || '—',
+                    partyMeta: outgoing ? 'transferred to' : 'transferred from',
+                    description: r.description || (outgoing ? `Transfer to ${other?.name || 'account'}` : `Transfer from ${other?.name || 'account'}`),
+                    reference: r.referenceNumber,
+                    amount: r.amountPKR, currency: 'PKR', amountPKR: r.amountPKR,
+                    linked: null
+                };
+            })
         ];
 
         // Sort ascending then attach running balance
@@ -195,6 +233,94 @@ router.get('/:id', async (req, res) => {
 const FINANCE_ROLES = ['admin', 'accounts'];
 
 // POST /api/cash-accounts
+// ── Internal transfers ────────────────────────────────────────────────────
+// Moving our own money between our own accounts: a bank withdrawal into the
+// cash drawer, a cash deposit into a bank, or bank to bank. It changes where
+// the money sits, not how much of it there is — so it must never appear as
+// income or expense, or every withdrawal would inflate the P&L and the
+// partners' share along with it.
+
+// GET /api/cash-accounts/transfers — history
+router.get('/transfers/list', async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit, 10) || 100, 300);
+        const q = { isActive: true };
+        if (req.query.account) {
+            q.$or = [{ fromAccount: req.query.account }, { toAccount: req.query.account }];
+        }
+        const items = await CashTransfer.find(q)
+            .sort('-date -createdAt')
+            .limit(limit)
+            .populate('fromAccount', 'name type')
+            .populate('toAccount', 'name type')
+            .populate('createdBy', 'name')
+            .lean();
+        res.json({ success: true, data: items, count: items.length });
+    } catch (error) { res.status(500).json({ success: false, message: error.message }); }
+});
+
+// POST /api/cash-accounts/transfers — record a transfer
+router.post('/transfers', authorize(...FINANCE_ROLES), async (req, res) => {
+    try {
+        const amountPKR = Math.round(Number(req.body.amountPKR ?? req.body.amount) || 0);
+        if (!(amountPKR > 0)) {
+            return res.status(400).json({ success: false, message: 'Enter an amount greater than zero' });
+        }
+        const { fromAccount, toAccount } = req.body;
+        if (!fromAccount || !toAccount) {
+            return res.status(400).json({ success: false, message: 'Select both the source and destination account' });
+        }
+        if (String(fromAccount) === String(toAccount)) {
+            return res.status(400).json({ success: false, message: 'The destination account must be different from the source account' });
+        }
+
+        const [src, dst] = await Promise.all([
+            CashAccount.findById(fromAccount).lean(),
+            CashAccount.findById(toAccount).lean()
+        ]);
+        if (!src || src.isActive === false) return res.status(400).json({ success: false, message: 'Source account not found' });
+        if (!dst || dst.isActive === false) return res.status(400).json({ success: false, message: 'Destination account not found' });
+
+        // You cannot withdraw money an account does not hold. Catching it here
+        // keeps a mistyped amount from pushing an account negative, which would
+        // quietly corrupt the cash position.
+        const balances = await buildBalanceMap();
+        const b = balances.get(String(src._id)) || { inflow: 0, outflow: 0 };
+        const available = (src.openingBalancePKR || 0) + b.inflow - b.outflow;
+        if (amountPKR > available) {
+            return res.status(400).json({
+                success: false,
+                message: `${src.name} only holds PKR ${Math.round(available).toLocaleString()}. Transfer that or less.`
+            });
+        }
+
+        const transfer = await CashTransfer.create({
+            fromAccount, toAccount, amountPKR,
+            date: req.body.date || new Date(),
+            referenceNumber: req.body.referenceNumber,
+            description: req.body.description || `Transfer from ${src.name} to ${dst.name}`,
+            notes: req.body.notes,
+            createdBy: req.user._id
+        });
+        const populated = await CashTransfer.findById(transfer._id)
+            .populate('fromAccount', 'name type')
+            .populate('toAccount', 'name type');
+        res.status(201).json({ success: true, data: populated });
+    } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+});
+
+// DELETE /api/cash-accounts/transfers/:id — reverse a transfer
+router.delete('/transfers/:id', authorize(...FINANCE_ROLES), async (req, res) => {
+    try {
+        const t = await CashTransfer.findById(req.params.id);
+        if (!t || t.isActive === false) return res.status(404).json({ success: false, message: 'Transfer not found' });
+        t.isActive = false;
+        t.updatedBy = req.user._id;
+        await t.save();
+        res.json({ success: true, message: 'Transfer reversed' });
+    } catch (error) { res.status(400).json({ success: false, message: error.message }); }
+});
+
 router.post('/', authorize(...FINANCE_ROLES), async (req, res) => {
     try {
         const body = { ...req.body, createdBy: req.user._id };
