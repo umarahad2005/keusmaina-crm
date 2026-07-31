@@ -29,11 +29,29 @@ const profitClosingSchema = new mongoose.Schema({
     periodFrom: { type: Date, required: true },
     periodTo: { type: Date, required: true },
 
-    // Snapshot of the P&L for the month, at the moment of closing.
+    // Which measure the shares were taken from.
+    //   cash    — money actually received minus money actually paid out. This
+    //             is what can genuinely be handed out, so it is the default.
+    //   accrual — what the month earned, counting unpaid sales and unpaid
+    //             supplier bills. Better for judging performance, but you can
+    //             distribute more than you hold.
+    basis: { type: String, enum: ['cash', 'accrual'], default: 'cash' },
+
+    // The figure that was actually divided into shares.
+    distributedPKR: { type: Number, default: 0 },
+
+    // Accrual snapshot (the P&L view of the month).
     revenuePKR: { type: Number, default: 0 },
     cogsPKR: { type: Number, default: 0 },
     opexPKR: { type: Number, default: 0 },
     netProfitPKR: { type: Number, default: 0 },
+
+    // Cash snapshot — both are stored whichever basis was used, so a close can
+    // always be explained afterwards and the two compared.
+    cashInPKR: { type: Number, default: 0 },
+    supplierPaidPKR: { type: Number, default: 0 },
+    opexPaidPKR: { type: Number, default: 0 },
+    netCashPKR: { type: Number, default: 0 },
 
     // How the net was divided.
     parts: { type: Number, required: true, min: 1 },

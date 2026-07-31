@@ -1,5 +1,6 @@
 const express = require('express');
 const SupplierLedger = require('../models/SupplierLedger');
+const LedgerEntry = require('../models/LedgerEntry');
 const Expense = require('../models/Expense');
 const CurrencySettings = require('../models/CurrencySettings');
 const ProfitClosing = require('../models/ProfitClosing');
@@ -24,35 +25,71 @@ function monthWindow(periodMonth) {
     return { from: new Date(y, m - 1, 1), to: new Date(y, m, 1) };
 }
 
-// Accrual net profit for the window, computed exactly as /reports/pnl does.
+// Both measures of the month, so a close can be taken on either and the two
+// can always be compared.
+//
+//   accrual — what the month EARNED: booked revenue (including sales not yet
+//             paid for) less supplier invoices (including bills not yet
+//             settled) less expenses. Matches the P&L report.
+//   cash    — what the month COLLECTED: client payments received, less
+//             supplier payments made and expenses. This is the money that
+//             actually exists to hand out.
+//
+// They diverge whenever a sale is unpaid or a supplier bill is outstanding.
 async function computeMonth(periodMonth) {
     const { from, to } = monthWindow(periodMonth);
     const currency = await CurrencySettings.getRate();
+    const rate = currency.sarToPkr;
+    const inWindow = { $gte: from, $lt: to };
 
-    const [booked, cogsAgg, opexAgg] = await Promise.all([
-        bookedRevenuePKR({ from, to, rate: currency.sarToPkr }),
+    const sumPKR = (agg) => Math.round(agg[0]?.total || 0);
+
+    const [booked, cogsInvoiced, cogsPaid, opexAgg, clientCredits] = await Promise.all([
+        bookedRevenuePKR({ from, to, rate }),
         SupplierLedger.aggregate([
-            { $match: { type: 'debit', date: { $gte: from, $lt: to } } },
+            { $match: { type: 'debit', date: inWindow } },
+            { $group: { _id: null, total: { $sum: '$amountPKR' } } }
+        ]),
+        SupplierLedger.aggregate([
+            { $match: { type: 'credit', date: inWindow } },
             { $group: { _id: null, total: { $sum: '$amountPKR' } } }
         ]),
         Expense.aggregate([
-            { $match: { isActive: true, date: { $gte: from, $lt: to } } },
+            { $match: { isActive: true, date: inWindow } },
             { $group: { _id: null, total: { $sum: '$amountPKR' } } }
+        ]),
+        // Client payments received. Mixed currency, so convert per row rather
+        // than summing raw amounts.
+        LedgerEntry.aggregate([
+            { $match: { isActive: true, type: 'credit', date: inWindow } },
+            { $group: { _id: '$currency', total: { $sum: '$amount' } } }
         ])
     ]);
 
     const revenuePKR = booked.totalPKR;
-    const cogsPKR = Math.round(cogsAgg[0]?.total || 0);
-    const opexPKR = Math.round(opexAgg[0]?.total || 0);
+    const cogsPKR = sumPKR(cogsInvoiced);
+    const opexPKR = sumPKR(opexAgg);
+    const supplierPaidPKR = sumPKR(cogsPaid);
+    const cashInPKR = Math.round(
+        clientCredits.reduce((s, r) => s + (r.total || 0) * (r._id === 'SAR' ? rate : 1), 0)
+    );
 
     return {
         periodMonth, periodFrom: from, periodTo: to,
-        revenuePKR, cogsPKR, opexPKR,
         packageCount: booked.packageCount,
         directChargeCount: booked.directCount,
-        netProfitPKR: revenuePKR - cogsPKR - opexPKR
+
+        revenuePKR, cogsPKR, opexPKR,
+        netProfitPKR: revenuePKR - cogsPKR - opexPKR,
+
+        cashInPKR, supplierPaidPKR, opexPaidPKR: opexPKR,
+        netCashPKR: cashInPKR - supplierPaidPKR - opexPKR
     };
 }
+
+// Which figure a given basis divides up.
+const amountForBasis = (figures, basis) =>
+    basis === 'accrual' ? figures.netProfitPKR : figures.netCashPKR;
 
 // Split into `parts` equal shares: part 1 is the office, the rest are partners.
 // Integer division leaves a remainder of at most (parts − 1) paisa-free rupees;
@@ -87,12 +124,17 @@ router.get('/preview', async (req, res) => {
             return res.status(400).json({ success: false, message: 'month must be YYYY-MM' });
         }
         const parts = Math.max(1, parseInt(req.query.parts, 10) || 1);
+        const basis = req.query.basis === 'accrual' ? 'accrual' : 'cash';
         const figures = await computeMonth(month);
-        const { shares, roundingPKR } = splitShares(figures.netProfitPKR, parts);
+        const distributedPKR = amountForBasis(figures, basis);
+        const { shares, roundingPKR } = splitShares(distributedPKR, parts);
         const existing = await ProfitClosing.findOne({ periodMonth: month }).select('_id closedAt');
         res.json({
             success: true,
-            data: { ...figures, parts, shares, roundingPKR, alreadyClosed: !!existing, closedAt: existing?.closedAt || null }
+            data: {
+                ...figures, parts, basis, distributedPKR, shares, roundingPKR,
+                alreadyClosed: !!existing, closedAt: existing?.closedAt || null
+            }
         });
     } catch (error) { res.status(500).json({ success: false, message: error.message }); }
 });
@@ -118,13 +160,15 @@ router.post('/', authorize(...CLOSING_ROLES), async (req, res) => {
             return res.status(400).json({ success: false, message: `${month} has not ended yet.` });
         }
 
+        const basis = req.body.basis === 'accrual' ? 'accrual' : 'cash';
         const figures = await computeMonth(month);
+        const distributedPKR = amountForBasis(figures, basis);
         const labels = Array.isArray(req.body.partnerLabels) ? req.body.partnerLabels.map(String) : [];
-        const { shares, roundingPKR } = splitShares(figures.netProfitPKR, parts);
+        const { shares, roundingPKR } = splitShares(distributedPKR, parts);
         shares.forEach((s, i) => { if (i > 0 && labels[i - 1]) s.label = labels[i - 1].trim() || s.label; });
 
         const closing = await ProfitClosing.create({
-            ...figures, parts, shares, roundingPKR,
+            ...figures, parts, basis, distributedPKR, shares, roundingPKR,
             notes: req.body.notes, closedBy: req.user._id, closedAt: new Date()
         });
         res.status(201).json({ success: true, data: closing });
