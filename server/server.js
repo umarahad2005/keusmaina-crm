@@ -182,6 +182,7 @@ app.use('/api/ledger', require('./routes/ledger'));
 // Module 4: Reports
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/closings', require('./routes/closings'));
+app.use('/api/invoices', require('./routes/invoices'));
 
 // Audit Logs
 app.use('/api/audit-logs', require('./routes/auditLogs'));

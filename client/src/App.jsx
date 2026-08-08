@@ -45,6 +45,8 @@ import Expenses from './pages/expenses/Expenses';
 // Print docs
 import Voucher from './pages/prints/Voucher';
 import Invoice from './pages/prints/Invoice';
+import StoredInvoice from './pages/prints/StoredInvoice';
+import InvoiceEditor from './pages/invoices/InvoiceEditor';
 import Itinerary from './pages/prints/Itinerary';
 import Receipt from './pages/prints/Receipt';
 
@@ -112,6 +114,9 @@ function AppRoutes() {
         <Route path="/expenses" element={<Expenses />} />
         <Route path="/packages/view/:id/voucher" element={<Voucher />} />
         <Route path="/packages/view/:id/invoice" element={<Invoice />} />
+        {/* Editable invoices: the editor, and the printable copy of what was saved. */}
+        <Route path="/invoices/edit/:id" element={<InvoiceEditor />} />
+        <Route path="/invoices/print/:id" element={<StoredInvoice />} />
         <Route path="/packages/view/:id/itinerary" element={<Itinerary />} />
         <Route path="/ledger/receipt/:entryId" element={<Receipt />} />
         <Route path="/ledger" element={<Ledger />} />

@@ -6,7 +6,7 @@ import FormModal from '../../components/FormModal';
 import toast from 'react-hot-toast';
 import {
     MdArrowBack, MdAdd, MdDelete, MdTrendingUp, MdTrendingDown, MdAccountBalance,
-    MdAttachFile, MdFilterList, MdClose, MdPictureAsPdf, MdDescription, MdTableChart,
+    MdAttachFile, MdFilterList, MdClose, MdPictureAsPdf, MdDescription, MdTableChart, MdRequestQuote,
     MdBlock, MdPlayArrow
 } from 'react-icons/md';
 import DocumentManager from '../../components/DocumentManager';
@@ -118,6 +118,15 @@ export default function SupplierDetail() {
         try { await api.delete(`/suppliers/${id}/ledger/${entryId}`); fetch(); }
         catch { toast.error('Failed'); }
     };
+    // Creates the invoice on first click and opens it; a second click reuses the
+    // one already raised rather than issuing a duplicate number.
+    const openInvoice = async (entryId) => {
+        try {
+            const r = await api.post('/invoices', { source: { kind: 'supplierLedger', id: entryId } });
+            nav(`/invoices/edit/${r.data.data._id}`);
+        } catch (e) { toast.error(e.response?.data?.message || 'Could not open invoice'); }
+    };
+
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     // Each party deals at their own rate; blank falls back to the global one.
     // Rate chain, mirroring the server: what's typed on the entry, else this
@@ -310,6 +319,12 @@ export default function SupplierDetail() {
                                                     <MdAttachFile size={14} />
                                                     {e.documents?.length > 0 && <span className="ml-0.5 text-[10px] font-bold">{e.documents.length}</span>}
                                                 </button>
+                                                {/* A debit is the supplier's invoice to us; a credit is our payment. */}
+                                                {e.type === 'debit' && (
+                                                    <button onClick={() => openInvoice(e._id)} className="btn-icon text-gold-600 hover:bg-gold-50" title="Editable invoice">
+                                                        <MdRequestQuote size={14} />
+                                                    </button>
+                                                )}
                                                 <button onClick={() => handleDelete(e._id)} className="btn-icon text-red-500 hover:bg-red-50"><MdDelete size={14} /></button>
                                             </td>
                                         </tr>

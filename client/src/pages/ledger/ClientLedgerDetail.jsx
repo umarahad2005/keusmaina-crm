@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import {
     MdArrowBack, MdAdd, MdDelete, MdTrendingUp, MdTrendingDown,
     MdAccountBalance, MdAttachFile, MdPictureAsPdf, MdDescription,
-    MdTableChart, MdFilterList, MdClose, MdReceipt
+    MdTableChart, MdFilterList, MdClose, MdReceipt, MdRequestQuote
 } from 'react-icons/md';
 import { exportLedgerXLSX, exportLedgerDOCX, openLedgerPrint } from '../../utils/ledgerExport';
 
@@ -102,6 +102,15 @@ export default function ClientLedgerDetail() {
     };
 
     useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [id, clientType, queryString]);
+
+    // Creates the invoice on first click and opens it; a second click reuses the
+    // one already raised rather than issuing a duplicate number.
+    const openInvoice = async (entryId) => {
+        try {
+            const r = await api.post('/invoices', { source: { kind: 'ledger', id: entryId } });
+            nav(`/invoices/edit/${r.data.data._id}`);
+        } catch (e) { toast.error(e.response?.data?.message || 'Could not open invoice'); }
+    };
 
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -351,6 +360,12 @@ export default function ClientLedgerDetail() {
                                                 <button onClick={() => window.open(`/ledger/receipt/${e._id}`, '_blank')} className="btn-icon text-navy-700 hover:bg-navy-50" title="Print receipt">
                                                     <MdReceipt size={14} />
                                                 </button>
+                                                {/* Only a charge gets invoiced; a payment gets a receipt. */}
+                                                {e.type === 'debit' && (
+                                                    <button onClick={() => openInvoice(e._id)} className="btn-icon text-gold-600 hover:bg-gold-50" title="Editable invoice">
+                                                        <MdRequestQuote size={14} />
+                                                    </button>
+                                                )}
                                                 <button onClick={() => handleDelete(e._id)} className="btn-icon text-red-500 hover:bg-red-50"><MdDelete size={14} /></button>
                                             </td>
                                         </tr>
