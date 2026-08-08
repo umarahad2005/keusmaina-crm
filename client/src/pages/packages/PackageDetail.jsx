@@ -14,7 +14,8 @@ const VISA_DOC_CATEGORIES = [
 ];
 import {
     MdArrowBack, MdEdit, MdContentCopy, MdPrint, MdPersonAdd, MdDelete,
-    MdSave, MdClose, MdCheck, MdSearch, MdAssignmentInd, MdReceipt, MdMap, MdDescription
+    MdSave, MdClose, MdCheck, MdSearch, MdAssignmentInd, MdReceipt, MdMap, MdDescription,
+    MdRequestQuote
 } from 'react-icons/md';
 
 const statusColors = {
@@ -170,6 +171,20 @@ export default function PackageDetail() {
 
     const printManifest = () => window.open(`/packages/view/${id}/manifest`, '_blank');
 
+    // Creates the editable invoice on first use and opens it; afterwards the
+    // same one is reopened rather than a second number being issued. A custom
+    // package seeds one line per priced component; a fixed package bills as the
+    // single contracted line it actually is.
+    const [makingInvoice, setMakingInvoice] = useState(false);
+    const openEditableInvoice = async () => {
+        setMakingInvoice(true);
+        try {
+            const r = await api.post('/invoices', { source: { kind: 'package', id } });
+            nav(`/invoices/edit/${r.data.data._id}`);
+        } catch (e) { toast.error(e.response?.data?.message || 'Could not open invoice'); }
+        finally { setMakingInvoice(false); }
+    };
+
     const advanceStatus = async (newStatus) => {
         if (!pkg || pkg.status === newStatus) return;
         if (newStatus === 'cancelled' && !confirm('Cancel this package? Seats and rooms will be released.')) return;
@@ -238,7 +253,10 @@ export default function PackageDetail() {
                     <button onClick={() => nav(`/packages/edit/${id}`)} className="btn-outline btn-sm flex items-center gap-1"><MdEdit size={14} /> Edit</button>
                     <button onClick={() => nav(`/packages/duplicate/${id}`)} className="btn-outline btn-sm flex items-center gap-1"><MdContentCopy size={14} /> Duplicate</button>
                     <button onClick={() => window.open(`/packages/view/${id}/voucher`, '_blank')} className="btn-outline btn-sm flex items-center gap-1"><MdDescription size={14} /> Voucher</button>
-                    <button onClick={() => window.open(`/packages/view/${id}/invoice`, '_blank')} className="btn-outline btn-sm flex items-center gap-1"><MdReceipt size={14} /> Invoice</button>
+                    {/* Two invoices on purpose: the auto one is always current with
+                        the package's pricing, the editable one is a document you own. */}
+                    <button onClick={() => window.open(`/packages/view/${id}/invoice`, '_blank')} className="btn-outline btn-sm flex items-center gap-1" title="Generated live from this package's pricing"><MdReceipt size={14} /> Invoice (auto)</button>
+                    <button onClick={openEditableInvoice} disabled={makingInvoice} className="btn-outline btn-sm flex items-center gap-1 disabled:opacity-50" title="Editable invoice — line items, notes and terms you can change"><MdRequestQuote size={14} /> {makingInvoice ? 'Opening…' : 'Editable Invoice'}</button>
                     <button onClick={() => window.open(`/packages/view/${id}/itinerary`, '_blank')} className="btn-outline btn-sm flex items-center gap-1"><MdMap size={14} /> Itinerary</button>
                     <button onClick={printManifest} className="btn-outline btn-sm flex items-center gap-1"><MdPrint size={14} /> Manifest</button>
                 </div>
