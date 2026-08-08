@@ -152,28 +152,69 @@ body { font-family: 'Segoe UI', Calibri, sans-serif; font-size: 10px; color: #11
 }
 
 // ── PDF ────────────────────────────────────────────────────────────────────
-export async function exportListPDF(spec) {
-    const { default: html2pdf } = await import('html2pdf.js');
-    const landscape = (spec.columns?.length || 0) > 6;
+// Two things matter here, both of which produce a blank PDF when got wrong —
+// see the same notes in reportExport.js:
+//
+//  1. html2canvas renders by CLONING the target into an off-document iframe.
+//     Any positioning on the target is cloned with it, so an element parked at
+//     `position:fixed; left:-10000px` lands outside the clone's own viewport
+//     and renders blank. The element handed to html2pdf must sit in normal
+//     static flow; a wrapper does the hiding instead.
+//
+//  2. html2pdf's UMD build can come back as the function, as `.default`, or as
+//     `.default.default` depending on how the bundler applies CJS interop.
+const A4_WIDTH_PX = 794;        // 210mm at 96dpi
+const A4_LANDSCAPE_PX = 1123;   // 297mm at 96dpi
 
-    // Rendered off-screen rather than hidden: html2canvas cannot measure an
-    // element with display:none, so it has to be laid out but out of view.
-    const holder = document.createElement('div');
-    holder.style.cssText = `position:fixed;left:-10000px;top:0;width:${landscape ? 1123 : 794}px;background:#fff;padding:24px;font-family:Segoe UI,Calibri,sans-serif;color:#111;`;
-    holder.innerHTML = listHTML(spec);
-    document.body.appendChild(holder);
+export async function exportListPDF(spec) {
+    const mod = await import('html2pdf.js');
+    const html2pdf = typeof mod === 'function' ? mod
+        : typeof mod.default === 'function' ? mod.default
+            : typeof mod.default?.default === 'function' ? mod.default.default
+                : null;
+    if (!html2pdf) throw new Error('PDF engine failed to load');
+
+    const landscape = (spec.columns?.length || 0) > 6;
+    const widthPx = landscape ? A4_LANDSCAPE_PX : A4_WIDTH_PX;
+
+    const wrapper = document.createElement('div');
+    // Only the WRAPPER is moved out of sight; the page itself stays in flow.
+    wrapper.style.cssText = `position:absolute;left:-${widthPx * 2}px;top:0;width:${widthPx}px;`;
+
+    const page = document.createElement('div');
+    page.style.cssText = `width:${widthPx}px;background:#ffffff;padding:24px;box-sizing:border-box;font-family:'Segoe UI',Calibri,sans-serif;color:#111111;font-size:10px;`;
+    page.innerHTML = listHTML(spec);
+
+    // Keep table headers from being sliced across a page break.
+    for (const el of page.querySelectorAll('thead, tr')) {
+        el.style.pageBreakInside = 'avoid';
+        el.style.breakInside = 'avoid';
+    }
+
+    wrapper.appendChild(page);
+    document.body.appendChild(wrapper);
 
     try {
         await html2pdf().set({
             margin: [8, 8, 10, 8],
             filename: `${safeName(spec.baseName || spec.title)}_${stamp()}.pdf`,
-            image: { type: 'jpeg', quality: 0.95 },
-            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: landscape ? 'landscape' : 'portrait' },
-            pagebreak: { mode: ['css', 'legacy'] },
-        }).from(holder).save();
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+                // Pin the capture box so it can't inherit the real window's
+                // width or scroll position.
+                windowWidth: widthPx,
+                width: widthPx,
+                scrollX: 0,
+                scrollY: 0
+            },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: landscape ? 'landscape' : 'portrait', compress: true },
+            pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'thead'] },
+        }).from(page).save();
     } finally {
-        document.body.removeChild(holder);
+        wrapper.remove();
     }
 }
 
