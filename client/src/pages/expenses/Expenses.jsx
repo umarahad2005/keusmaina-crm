@@ -3,6 +3,8 @@ import api from '../../utils/api';
 import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
+import ExportButtons from '../../components/ExportButtons';
+import { columnsFromDataTable } from '../../utils/listExport';
 import FormModal from '../../components/FormModal';
 import DocumentManager from '../../components/DocumentManager';
 import toast from 'react-hot-toast';
@@ -11,9 +13,13 @@ import { MdAttachFile, MdReceiptLong, MdCalendarMonth, MdDateRange } from 'react
 const CATEGORIES = [
     ['rent', 'Rent'],
     ['salaries', 'Salaries'],
-    ['utilities', 'Utilities'],
+    ['utilities', 'Utilities (other)'],
+    ['electricity_bill', 'Electricity Bill'],
+    ['food', 'Food'],
+    ['guest_refreshment', 'Refreshment for Guests'],
     ['marketing', 'Marketing'],
     ['office_supplies', 'Office Supplies'],
+    ['office_service_charges', 'Office Service Charges'],
     ['communication', 'Communication'],
     ['maintenance', 'Maintenance'],
     ['legal_professional', 'Legal/Professional'],
@@ -151,6 +157,33 @@ export default function Expenses() {
                 {CATEGORIES.map(([k, l]) => (
                     <button key={k} onClick={() => setFilterCat(k)} className={`px-3 py-1 rounded-lg text-xs font-semibold ${filterCat === k ? 'bg-navy-800 text-white' : 'bg-gray-100 text-gray-600'}`}>{l}</button>
                 ))}
+            </div>
+
+            <div className="flex justify-end mb-2">
+                <ExportButtons getSpec={() => ({
+                    title: 'Expenses',
+                    baseName: 'expenses',
+                    meta: [['Category filter', filterCat === 'all' ? 'All categories' : (CAT_LABEL[filterCat] || filterCat)]],
+                    // amountPKR is added on top of the on-screen columns: the
+                    // table shows the original currency, but a spreadsheet needs
+                    // one comparable column to total.
+                    columns: [
+                        ...columnsFromDataTable(columns, {
+                            skip: ['documents'],
+                            money: ['amount'],
+                            format: {
+                                date: v => fmtDate(v),
+                                category: v => CAT_LABEL[v] || v,
+                                paymentMethod: v => (v || '').replace(/_/g, ' '),
+                            },
+                        }),
+                        { key: 'currency', label: 'Currency' },
+                        { key: 'amountPKR', label: 'Amount (PKR)', money: true, right: true },
+                        { key: 'documents', label: 'Files', value: v => (v?.length || 0) },
+                    ],
+                    rows: data,
+                    totals: [['Total (PKR)', data.reduce((s, r) => s + (r.amountPKR || r.amount || 0), 0)]],
+                })} />
             </div>
 
             <DataTable columns={columns} data={data} loading={loading}

@@ -12,9 +12,12 @@ import {
 } from 'react-icons/md';
 
 const CAT_LABEL = {
-    rent: 'Rent', salaries: 'Salaries', utilities: 'Utilities', marketing: 'Marketing',
-    office_supplies: 'Office Supplies', communication: 'Communication', maintenance: 'Maintenance',
-    legal_professional: 'Legal/Pro', travel_local: 'Local Travel', bank_charges: 'Bank Charges', other: 'Other'
+    rent: 'Rent', salaries: 'Salaries', utilities: 'Utilities (other)',
+    electricity_bill: 'Electricity Bill', food: 'Food', guest_refreshment: 'Refreshment for Guests',
+    marketing: 'Marketing', office_supplies: 'Office Supplies',
+    office_service_charges: 'Office Service Charges', communication: 'Communication',
+    maintenance: 'Maintenance', legal_professional: 'Legal/Pro', travel_local: 'Local Travel',
+    bank_charges: 'Bank Charges', other: 'Other'
 };
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (k) => { const [y, m] = k.split('-'); return `${MONTH_NAMES[parseInt(m) - 1]} ${y.slice(2)}`; };

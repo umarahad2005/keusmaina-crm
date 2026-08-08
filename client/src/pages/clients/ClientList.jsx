@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import useAutoRefresh from '../../hooks/useAutoRefresh';
 import DataTable from '../../components/DataTable';
+import ExportButtons from '../../components/ExportButtons';
+import { columnsFromDataTable } from '../../utils/listExport';
 import FormModal from '../../components/FormModal';
 import StatusBadge from '../../components/StatusBadge';
 import DocumentManager from '../../components/DocumentManager';
@@ -120,14 +122,38 @@ export default function ClientList() {
 
     return (
         <div>
-            {/* Tabs */}
-            <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
+            {/* Tabs + downloads */}
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+                <div className="flex gap-1 bg-gray-100 rounded-xl p-1 w-fit">
                 <button onClick={() => setTab('b2c')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'b2c' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     👤 B2C Pilgrims
                 </button>
                 <button onClick={() => setTab('b2b')} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab === 'b2b' ? 'bg-white text-navy-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
                     🏢 B2B Agents
                 </button>
+                </div>
+
+                {/* Exports the tab you are looking at, since the two client
+                    types have entirely different columns. */}
+                <ExportButtons getSpec={() => (tab === 'b2c' ? {
+                    title: 'B2C Pilgrims',
+                    baseName: 'clients_b2c',
+                    columns: columnsFromDataTable(b2cColumns, {
+                        format: { isActive: v => (v === false ? 'Inactive' : 'Active') },
+                    }),
+                    rows: b2cData,
+                } : {
+                    title: 'B2B Agents',
+                    baseName: 'clients_b2b',
+                    columns: columnsFromDataTable(b2bColumns, {
+                        format: {
+                            isActive: v => (v === false ? 'Inactive' : 'Active'),
+                            commissionType: (v, row) => (v === 'percentage' ? `${row.commissionValue}%` : `SAR ${row.commissionValue}`),
+                            subPilgrims: v => (v?.length || 0),
+                        },
+                    }),
+                    rows: b2bData,
+                })} />
             </div>
 
             {/* Table */}

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../utils/api';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
+import ExportButtons from '../../components/ExportButtons';
+import { columnsFromDataTable } from '../../utils/listExport';
 import FormModal from '../../components/FormModal';
 import StatusBadge from '../../components/StatusBadge';
 import toast from 'react-hot-toast';
@@ -137,7 +139,24 @@ export default function CashAccountList() {
                 </div>
             </div>
 
-            <div className="flex justify-end mb-3">
+            <div className="flex items-center justify-end gap-3 mb-3 flex-wrap">
+                <ExportButtons getSpec={() => ({
+                    title: 'Cash & Bank Accounts',
+                    baseName: 'cash_and_bank',
+                    columns: columnsFromDataTable(columns, {
+                        money: ['openingBalancePKR', 'inflowPKR', 'outflowPKR', 'balancePKR'],
+                        format: {
+                            type: v => TYPE_LABEL[v] || v,
+                            isActive: v => (v === false ? 'Inactive' : 'Active'),
+                        },
+                    }),
+                    rows: data,
+                    totals: [
+                        ['Total received (PKR)', data.reduce((s, r) => s + (r.inflowPKR || 0), 0)],
+                        ['Total paid out (PKR)', data.reduce((s, r) => s + (r.outflowPKR || 0), 0)],
+                        ['Total balance (PKR)', data.reduce((s, r) => s + (r.balancePKR || 0), 0)],
+                    ],
+                })} />
                 <button onClick={openTransfer} className="btn-primary btn-sm flex items-center gap-1">
                     <MdSwapHoriz size={16} /> Transfer Between Accounts
                 </button>

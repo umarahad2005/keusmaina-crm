@@ -4,6 +4,8 @@ import api from '../../utils/api';
 import useAutoRefresh from '../../hooks/useAutoRefresh';
 import { useCurrency } from '../../context/CurrencyContext';
 import DataTable from '../../components/DataTable';
+import ExportButtons from '../../components/ExportButtons';
+import { columnsFromDataTable } from '../../utils/listExport';
 import FormModal from '../../components/FormModal';
 import StatusBadge from '../../components/StatusBadge';
 import toast from 'react-hot-toast';
@@ -85,6 +87,26 @@ export default function SupplierList() {
                     <div><p className="stat-label">Outstanding Payable</p><p className={`stat-value ${summary.totalPayable > 0 ? 'text-red-600' : 'text-green-700'}`}>{formatPKR(summary.totalPayable)}</p></div>
                     <div className="stat-icon bg-navy-800 text-white"><MdAccountBalance size={22} /></div>
                 </div>
+            </div>
+
+            <div className="flex justify-end mb-2">
+                <ExportButtons getSpec={() => ({
+                    title: 'Suppliers',
+                    baseName: 'suppliers',
+                    columns: columnsFromDataTable(columns, {
+                        money: ['totalDebit', 'totalCredit', 'balancePKR'],
+                        format: {
+                            type: v => TYPE_LABELS[v] || v,
+                            isActive: v => (v === false ? 'Inactive' : 'Active'),
+                        },
+                    }),
+                    rows: data,
+                    totals: [
+                        ['Total invoiced (PKR)', data.reduce((s, r) => s + (r.totalDebit || 0), 0)],
+                        ['Total paid (PKR)', data.reduce((s, r) => s + (r.totalCredit || 0), 0)],
+                        ['Outstanding payable (PKR)', data.reduce((s, r) => s + (r.balancePKR || 0), 0)],
+                    ],
+                })} />
             </div>
 
             <DataTable

@@ -21,7 +21,14 @@ const expenseSchema = new mongoose.Schema({
     date: { type: Date, default: Date.now, required: true },
     category: {
         type: String,
-        enum: ['rent', 'salaries', 'utilities', 'marketing', 'office_supplies', 'communication', 'maintenance', 'legal_professional', 'travel_local', 'bank_charges', 'other'],
+        // `utilities` stays for older entries; `electricity_bill` splits the
+        // biggest utility out so it can be tracked on its own.
+        enum: [
+            'rent', 'salaries', 'utilities', 'electricity_bill', 'marketing',
+            'office_supplies', 'office_service_charges', 'food', 'guest_refreshment',
+            'communication', 'maintenance', 'legal_professional', 'travel_local',
+            'bank_charges', 'other'
+        ],
         default: 'other',
         required: true
     },
