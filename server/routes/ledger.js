@@ -17,7 +17,18 @@ router.use(auditMiddleware('LedgerEntry'));
 const CAN_RECORD = ['admin', 'accounts', 'sales'];
 const CAN_EDIT = ['admin', 'accounts'];
 
-const { toPKR, applyEntryFx } = require('../utils/fx');
+const { toPKR, applyEntryFx, partyRateOr } = require('../utils/fx');
+
+// The SAR rate this client deals at. Used as the fallback for their entries, so
+// a charge lands at the rate agreed with THEM rather than the global buy rate.
+// Returns undefined when there is no client or no rate set, which partyRateOr
+// then turns back into the global rate.
+async function clientSarRate(clientId, clientModel) {
+    if (!clientId) return undefined;
+    const Model = clientModel === 'ClientB2B' ? ClientB2B : ClientB2C;
+    const doc = await Model.findById(clientId).select('sarExchangeRate').lean();
+    return doc?.sarExchangeRate;
+}
 
 // Enforce the cash-movement rules on a ledger entry body (shared by POST/PUT).
 // Returns an error string if the entry is invalid, otherwise mutates `body`.
@@ -315,7 +326,8 @@ router.post('/', authorize(...CAN_RECORD), async (req, res) => {
         const currency = await CurrencySettings.getRate();
         req.body.createdBy = req.user._id;
         delete req.body.updatedBy;
-        applyEntryFx(req.body, currency.sarToPkr);
+        const rateForClient = await clientSarRate(req.body.client, req.body.clientModel);
+        applyEntryFx(req.body, partyRateOr(rateForClient, currency.sarToPkr));
 
         const ruleErr = applyCashRules(req.body, {
             category: req.body.category,
@@ -371,7 +383,11 @@ router.put('/:id', authorize(...CAN_EDIT), async (req, res) => {
                 currency: cur,
                 exchangeRate: req.body.exchangeRate ?? existing.exchangeRate
             };
-            applyEntryFx(fx, currency.sarToPkr);
+            const editRate = await clientSarRate(
+                req.body.client ?? existing.client,
+                req.body.clientModel ?? existing.clientModel
+            );
+            applyEntryFx(fx, partyRateOr(editRate, currency.sarToPkr));
             req.body.amountPKR = fx.amountPKR;
             req.body.exchangeRate = fx.exchangeRate;
         }

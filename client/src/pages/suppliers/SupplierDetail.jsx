@@ -120,7 +120,11 @@ export default function SupplierDetail() {
     };
     const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
     // Each party deals at their own rate; blank falls back to the global one.
-    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : (sarToPkr || 0);
+    // Rate chain, mirroring the server: what's typed on the entry, else this
+    // supplier's negotiated rate, else the global buy rate.
+    const supplierRate = Number(sup?.sarExchangeRate) > 0 ? Number(sup.sarExchangeRate) : 0;
+    const fallbackRate = supplierRate || sarToPkr || 0;
+    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : fallbackRate;
     const setFilter = (k, v) => setFilters(f => ({ ...f, [k]: v }));
 
     if (loading || !sup) return <div className="flex items-center justify-center py-20"><div className="w-10 h-10 border-4 border-navy-800 border-t-gold-500 rounded-full animate-spin" /></div>;
@@ -346,13 +350,13 @@ export default function SupplierDetail() {
                                 <input className="input" type="number" step="0.01" min="0"
                                     value={form.exchangeRate}
                                     onChange={e => set('exchangeRate', e.target.value)}
-                                    placeholder={`Leave empty for ${sarToPkr}`} />
+                                    placeholder={`Leave empty for ${fallbackRate}`} />
                                 <div className="text-sm">
                                     <span className="text-gray-600">Converts to </span>
                                     <b className="text-navy-800">{formatPKR(Number(form.amount || 0) * effectiveRate)}</b>
                                     <div className="text-[11px] text-gray-500">
                                         {Number(form.amount || 0).toLocaleString()} SAR × {effectiveRate}
-                                        {!form.exchangeRate && ' (global rate)'}
+                                        {!form.exchangeRate && (supplierRate ? ' (this supplier\'s rate)' : ' (global rate)')}
                                     </div>
                                 </div>
                             </div>

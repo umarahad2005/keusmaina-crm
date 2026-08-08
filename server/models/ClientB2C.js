@@ -41,6 +41,12 @@ const clientB2CSchema = new mongoose.Schema({
 
     documents: { type: [documentSchema], default: [] },
 
+    // The SAR→PKR rate agreed with THIS client. Rates are negotiated per party,
+    // so a single global rate would bill them at the wrong number. Pre-fills the
+    // rate on any SAR charge or payment for this client and stays overridable on
+    // the entry. Blank = fall back to the global CurrencySettings rate.
+    sarExchangeRate: { type: Number, min: 0 },
+
     notes: { type: String },
     isActive: { type: Boolean, default: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },

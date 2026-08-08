@@ -109,10 +109,14 @@ export default function ClientLedgerDetail() {
     // yet. Payments do, and so do refunds (which the category forces to debit).
     const isMoneyMovement = form.type === 'credit' || form.category === 'refund';
 
-    // Blank rate means "use the global one" — shown live so the PKR figure is
-    // never a surprise after saving.
+    // Rate chain, mirroring the server: what's typed on the entry, else the
+    // rate agreed with this client, else the global buy rate. Shown live so the
+    // PKR figure is never a surprise after saving. `data` is still null while
+    // the page loads, hence the optional chain.
     const globalRate = sarToPkr || 0;
-    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : globalRate;
+    const clientRate = Number(data?.client?.sarExchangeRate) > 0 ? Number(data.client.sarExchangeRate) : 0;
+    const fallbackRate = clientRate || globalRate;
+    const effectiveRate = Number(form.exchangeRate) > 0 ? Number(form.exchangeRate) : fallbackRate;
 
     // Switching to a charge clears any bank/cheque detail already typed, so a
     // half-filled reference can't be saved against an invoice.
@@ -403,13 +407,13 @@ export default function ClientLedgerDetail() {
                                 <input className="input" type="number" step="0.01" min="0"
                                     value={form.exchangeRate}
                                     onChange={e => set('exchangeRate', e.target.value)}
-                                    placeholder={`Leave empty for ${globalRate}`} />
+                                    placeholder={`Leave empty for ${fallbackRate}`} />
                                 <div className="text-sm">
                                     <span className="text-gray-600">Converts to </span>
                                     <b className="text-navy-800">{formatPKR(Number(form.amount || 0) * effectiveRate)}</b>
                                     <div className="text-[11px] text-gray-500">
                                         {Number(form.amount || 0).toLocaleString()} SAR × {effectiveRate}
-                                        {!form.exchangeRate && ' (global rate)'}
+                                        {!form.exchangeRate && (clientRate ? ' (this client\'s rate)' : ' (global rate)')}
                                     </div>
                                 </div>
                             </div>

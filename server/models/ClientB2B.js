@@ -28,6 +28,12 @@ const clientB2BSchema = new mongoose.Schema({
     commissionType: { type: String, enum: ['percentage', 'fixed'], default: 'percentage' },
     commissionValue: { type: Number, default: 0 },
 
+    // The SAR→PKR rate agreed with THIS agent. Rates are negotiated per party,
+    // so a single global rate would bill them at the wrong number. Pre-fills the
+    // rate on any SAR charge or payment for this agent and stays overridable on
+    // the entry. Blank = fall back to the global CurrencySettings rate.
+    sarExchangeRate: { type: Number, min: 0 },
+
     // Auto-generated agent code
     agentCode: { type: String, unique: true },
 

@@ -19,8 +19,12 @@ const PILGRIM_DOC_CATEGORIES = [
     ['other', 'Other']
 ];
 
-const emptyB2C = { fullName: '', gender: 'Male', cnic: '', passportNumber: '', passportExpiry: '', dob: '', phone: '', whatsapp: '', address: '', city: '', mahramDetails: { name: '', relation: '', cnic: '' }, emergencyContact: { name: '', phone: '', relation: '' }, notes: '' };
-const emptyB2B = { companyName: '', contactPerson: '', phone: '', whatsapp: '', email: '', city: '', address: '', commissionType: 'percentage', commissionValue: 0, notes: '' };
+const emptyB2C = { fullName: '', gender: 'Male', cnic: '', passportNumber: '', passportExpiry: '', dob: '', phone: '', whatsapp: '', address: '', city: '', mahramDetails: { name: '', relation: '', cnic: '' }, emergencyContact: { name: '', phone: '', relation: '' }, sarExchangeRate: '', notes: '' };
+const emptyB2B = { companyName: '', contactPerson: '', phone: '', whatsapp: '', email: '', city: '', address: '', commissionType: 'percentage', commissionValue: 0, sarExchangeRate: '', notes: '' };
+
+// Shown on both client forms — the rate is negotiated per party, so a single
+// global rate would bill them at the wrong number.
+const SAR_RATE_HINT = 'Pre-fills SAR charges and payments for this client. Leave blank to use the global rate.';
 
 export default function ClientList() {
     const nav = useNavigate();
@@ -102,11 +106,18 @@ export default function ClientList() {
 
         setSaving(true);
         try {
+            // A blank rate means "use the global rate" — send null so the field
+            // is cleared rather than asking Mongoose to cast an empty string.
+            const payload = {
+                ...formData,
+                sarExchangeRate: formData.sarExchangeRate === '' || formData.sarExchangeRate === null || formData.sarExchangeRate === undefined
+                    ? null : Number(formData.sarExchangeRate)
+            };
             if (editId) {
-                await api.put(`${endpoint}/${editId}`, formData);
+                await api.put(`${endpoint}/${editId}`, payload);
                 toast.success('Updated');
             } else {
-                await api.post(endpoint, formData);
+                await api.post(endpoint, payload);
                 toast.success('Created');
             }
             setModal(false);
@@ -231,6 +242,10 @@ export default function ClientList() {
                             <input className="input text-sm" value={b2cForm.emergencyContact.relation} onChange={e => setEmergency('relation', e.target.value)} placeholder="Relation" />
                         </div>
                     </div>
+                    <div className="mt-3 sm:w-1/2"><label className="label">SAR Rate for this client</label>
+                        <input className="input" type="number" min="0" step="0.01" value={b2cForm.sarExchangeRate}
+                            onChange={e => setB2C('sarExchangeRate', e.target.value)} placeholder="e.g. 77" />
+                        <p className="text-[10px] text-gray-500 mt-1">{SAR_RATE_HINT}</p></div>
                     {/* Documents — only available when editing an existing client */}
                     {editId && (
                         <div className="mt-4 p-3 bg-navy-50/50 rounded-xl border border-navy-100">
@@ -272,6 +287,10 @@ export default function ClientList() {
                             </select></div>
                         <div><label className="label">Commission Value</label>
                             <input className="input" type="number" value={b2bForm.commissionValue} onChange={e => setB2B('commissionValue', e.target.value)} /></div>
+                        <div><label className="label">SAR Rate for this agent</label>
+                            <input className="input" type="number" min="0" step="0.01" value={b2bForm.sarExchangeRate}
+                                onChange={e => setB2B('sarExchangeRate', e.target.value)} placeholder="e.g. 77" />
+                            <p className="text-[10px] text-gray-500 mt-1">{SAR_RATE_HINT}</p></div>
                     </div>
                     <div className="mt-3"><label className="label">Notes</label>
                         <textarea className="input" rows={2} value={b2bForm.notes} onChange={e => setB2B('notes', e.target.value)} /></div>

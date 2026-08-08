@@ -13,7 +13,7 @@ import { MdVisibility, MdAccountBalance, MdPlayArrow, MdBlock } from 'react-icon
 
 const TYPE_LABELS = { hotel: '🏨 Hotel', airline: '✈️ Airline', transport: '🚌 Transport', visa_agent: '🛂 Visa Agent', ziyarat: '🕌 Ziyarat', other: 'Other' };
 
-const empty = () => ({ name: '', type: 'other', contactPerson: '', phone: '', whatsapp: '', email: '', city: '', address: '', openingBalancePKR: 0, notes: '' });
+const empty = () => ({ name: '', type: 'other', contactPerson: '', phone: '', whatsapp: '', email: '', city: '', address: '', openingBalancePKR: 0, sarExchangeRate: '', notes: '' });
 
 export default function SupplierList() {
     const [data, setData] = useState([]);
@@ -67,8 +67,11 @@ export default function SupplierList() {
         if (!form.name) { toast.error('Name is required'); return; }
         setSaving(true);
         try {
-            if (editId) await api.put(`/suppliers/${editId}`, form);
-            else await api.post('/suppliers', form);
+            // A blank rate means "use the global rate" — send null so the field
+            // is cleared rather than asking Mongoose to cast an empty string.
+            const payload = { ...form, sarExchangeRate: form.sarExchangeRate === '' || form.sarExchangeRate === null ? null : Number(form.sarExchangeRate) };
+            if (editId) await api.put(`/suppliers/${editId}`, payload);
+            else await api.post('/suppliers', payload);
             toast.success(editId ? 'Updated' : 'Created');
             setModal(false); fetchData();
         } catch (e) { toast.error(e.response?.data?.message || 'Failed'); }
@@ -143,6 +146,10 @@ export default function SupplierList() {
                     <div><label className="label">Opening Balance (PKR)</label>
                         <input className="input" type="number" value={form.openingBalancePKR} onChange={e => set('openingBalancePKR', Number(e.target.value) || 0)} placeholder="What we already owe at entry" />
                         <p className="text-[10px] text-gray-500 mt-1">Positive if we owe them; leave 0 if starting fresh</p></div>
+                    <div><label className="label">SAR Rate for this supplier</label>
+                        <input className="input" type="number" min="0" step="0.01" value={form.sarExchangeRate}
+                            onChange={e => set('sarExchangeRate', e.target.value)} placeholder="e.g. 76" />
+                        <p className="text-[10px] text-gray-500 mt-1">Pre-fills SAR entries for this supplier. Leave blank to use the global rate.</p></div>
                 </div>
                 <div><label className="label">Address</label>
                     <input className="input" value={form.address} onChange={e => set('address', e.target.value)} /></div>

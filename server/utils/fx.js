@@ -13,23 +13,35 @@
 const toPKR = (amount, currency, rate) =>
     currency === 'SAR' ? Number(amount) * rate : Number(amount);
 
-// Explicit override when it is a sane positive number, otherwise the global
+// Explicit override when it is a sane positive number, otherwise the fallback
 // rate. Zero, negative, empty and garbage all fall back rather than posting a
 // zero-value entry.
-const resolveEntryRate = (body, globalRate) => {
+const resolveEntryRate = (body, fallbackRate) => {
     const override = Number(body?.exchangeRate);
-    return Number.isFinite(override) && override > 0 ? override : globalRate;
+    return Number.isFinite(override) && override > 0 ? override : fallbackRate;
+};
+
+// The fallback for a party's entry: the rate negotiated with THAT supplier or
+// client, else the global buy rate. Suppliers and clients each settle at their
+// own rate — one at 77, another at 76 — so falling straight through to the
+// global rate would post their entries at a number nobody agreed to.
+//
+// Full chain for any SAR entry:  entry override → party rate → global rate.
+const partyRateOr = (partyRate, globalRate) => {
+    const r = Number(partyRate);
+    return Number.isFinite(r) && r > 0 ? r : globalRate;
 };
 
 // Apply both to a request body in place, and record the rate used so the entry
 // can be explained later and never re-derived from a rate that has since moved.
-// Returns the rate applied.
-function applyEntryFx(body, globalRate) {
+// `fallbackRate` should already be the party's rate where there is one — see
+// partyRateOr. Returns the rate applied.
+function applyEntryFx(body, fallbackRate) {
     const currency = body.currency || 'PKR';
-    const rate = resolveEntryRate(body, globalRate);
+    const rate = resolveEntryRate(body, fallbackRate);
     body.amountPKR = toPKR(body.amount, currency, rate);
     body.exchangeRate = currency === 'SAR' ? rate : undefined;
     return rate;
 }
 
-module.exports = { toPKR, resolveEntryRate, applyEntryFx };
+module.exports = { toPKR, resolveEntryRate, partyRateOr, applyEntryFx };

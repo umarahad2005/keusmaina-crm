@@ -18,6 +18,13 @@ const supplierSchema = new mongoose.Schema({
     city: { type: String, trim: true },
     address: { type: String, trim: true },
 
+    // The SAR→PKR rate negotiated with THIS supplier. Rates differ per party —
+    // one supplier settles at 77, another at 76 — so a single global rate would
+    // misprice them. Pre-fills the rate on any SAR entry for this supplier and
+    // stays overridable on the entry itself. Blank = fall back to the global
+    // CurrencySettings rate.
+    sarExchangeRate: { type: Number, min: 0 },
+
     // Opening balance in PKR. Positive = we already owed them at the time
     // they were entered into the system.
     openingBalancePKR: { type: Number, default: 0 },
