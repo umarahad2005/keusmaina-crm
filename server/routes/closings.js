@@ -25,17 +25,25 @@ function monthWindow(periodMonth) {
     return { from: new Date(y, m - 1, 1), to: new Date(y, m, 1) };
 }
 
-// Both measures of the month, so a close can be taken on either and the two
-// can always be compared.
+// What the month actually leaves in our hands:
 //
-//   accrual — what the month EARNED: booked revenue (including sales not yet
-//             paid for) less supplier invoices (including bills not yet
-//             settled) less expenses. Matches the P&L report.
-//   cash    — what the month COLLECTED: client payments received, less
-//             supplier payments made and expenses. This is the money that
-//             actually exists to hand out.
+//     money RECEIVED from clients
+//   − everything suppliers have INVOICED us (payable and already paid alike)
+//   − the month's expenses
+//   = distributable profit
 //
-// They diverge whenever a sale is unpaid or a supplier bill is outstanding.
+// Worked example: we invoiced clients 20 lac and collected 18; suppliers billed
+// us 16; expenses were 1. Profit is 18 − 16 − 1 = 1 lac.
+//
+// The two sides are deliberately measured differently, and that is the point:
+// we only count client money we are actually holding, but we count the FULL
+// supplier bill even where it is still unpaid, because that money is already
+// committed and must not be distributed. Counting only supplier payments made
+// would overstate the profit in any month where their bills arrive late.
+//
+// Booked revenue and supplier-paid are still computed and snapshotted for
+// context, so a close can be compared against the P&L afterwards — but they are
+// not what gets divided.
 async function computeMonth(periodMonth) {
     const { from, to } = monthWindow(periodMonth);
     const currency = await CurrencySettings.getRate();
@@ -79,17 +87,24 @@ async function computeMonth(periodMonth) {
         packageCount: booked.packageCount,
         directChargeCount: booked.directCount,
 
-        revenuePKR, cogsPKR, opexPKR,
-        netProfitPKR: revenuePKR - cogsPKR - opexPKR,
+        // The three figures the close is built from.
+        cashInPKR,                       // client money received
+        cogsPKR,                         // supplier invoiced: payable + paid
+        opexPKR,                         // expenses
+        netReceivedPKR: cashInPKR - cogsPKR - opexPKR,
 
-        cashInPKR, supplierPaidPKR, opexPaidPKR: opexPKR,
+        // Context only — snapshotted so a close can be explained later.
+        revenuePKR,
+        netProfitPKR: revenuePKR - cogsPKR - opexPKR,
+        supplierPaidPKR,
+        opexPaidPKR: opexPKR,
         netCashPKR: cashInPKR - supplierPaidPKR - opexPKR
     };
 }
 
-// Which figure a given basis divides up.
-const amountForBasis = (figures, basis) =>
-    basis === 'accrual' ? figures.netProfitPKR : figures.netCashPKR;
+// There is one basis now: what we are actually holding after every supplier
+// bill and expense for the month is accounted for.
+const amountForBasis = (figures) => figures.netReceivedPKR;
 
 // Split into `parts` equal shares: part 1 is the office, the rest are partners.
 // Integer division leaves a remainder of at most (parts − 1) paisa-free rupees;
@@ -124,9 +139,9 @@ router.get('/preview', async (req, res) => {
             return res.status(400).json({ success: false, message: 'month must be YYYY-MM' });
         }
         const parts = Math.max(1, parseInt(req.query.parts, 10) || 1);
-        const basis = req.query.basis === 'accrual' ? 'accrual' : 'cash';
+        const basis = 'net_received';
         const figures = await computeMonth(month);
-        const distributedPKR = amountForBasis(figures, basis);
+        const distributedPKR = amountForBasis(figures);
         const { shares, roundingPKR } = splitShares(distributedPKR, parts);
         const existing = await ProfitClosing.findOne({ periodMonth: month }).select('_id closedAt');
         res.json({
@@ -160,9 +175,9 @@ router.post('/', authorize(...CLOSING_ROLES), async (req, res) => {
             return res.status(400).json({ success: false, message: `${month} has not ended yet.` });
         }
 
-        const basis = req.body.basis === 'accrual' ? 'accrual' : 'cash';
+        const basis = 'net_received';
         const figures = await computeMonth(month);
-        const distributedPKR = amountForBasis(figures, basis);
+        const distributedPKR = amountForBasis(figures);
         const labels = Array.isArray(req.body.partnerLabels) ? req.body.partnerLabels.map(String) : [];
         const { shares, roundingPKR } = splitShares(distributedPKR, parts);
         shares.forEach((s, i) => { if (i > 0 && labels[i - 1]) s.label = labels[i - 1].trim() || s.label; });

@@ -30,15 +30,19 @@ const profitClosingSchema = new mongoose.Schema({
     periodTo: { type: Date, required: true },
 
     // Which measure the shares were taken from.
-    //   cash    — money actually received minus money actually paid out. This
-    //             is what can genuinely be handed out, so it is the default.
-    //   accrual — what the month earned, counting unpaid sales and unpaid
-    //             supplier bills. Better for judging performance, but you can
-    //             distribute more than you hold.
-    basis: { type: String, enum: ['cash', 'accrual'], default: 'cash' },
+    //   net_received — client money RECEIVED, less every supplier bill INVOICED
+    //                  for the month (payable and paid alike), less expenses.
+    //                  The only basis produced now.
+    //   cash/accrual — legacy bases used by closings taken before the change.
+    //                  Kept in the enum so those documents remain valid; new
+    //                  closings never use them.
+    basis: { type: String, enum: ['net_received', 'cash', 'accrual'], default: 'net_received' },
 
     // The figure that was actually divided into shares.
     distributedPKR: { type: Number, default: 0 },
+
+    // The close itself: received − supplier invoiced − expenses.
+    netReceivedPKR: { type: Number, default: 0 },
 
     // Accrual snapshot (the P&L view of the month).
     revenuePKR: { type: Number, default: 0 },

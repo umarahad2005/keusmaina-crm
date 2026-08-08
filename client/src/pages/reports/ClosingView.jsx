@@ -9,10 +9,15 @@ import { MdLockOpen } from 'react-icons/md';
 // partners. N is asked for every time because the number of partners is not
 // always the same.
 //
-// The basis is a real choice. Net cash collected is what can actually be handed
-// out; net profit earned counts sales not yet paid for and bills not yet
-// settled, so dividing it can distribute money the business does not hold.
-// Both are always shown so the gap between them is visible before closing.
+// What gets divided is:
+//
+//     money RECEIVED from clients
+//   − every supplier bill INVOICED for the month (payable and paid alike)
+//   − the month's expenses
+//
+// The two sides are measured differently on purpose: only client money we are
+// actually holding counts, but the full supplier bill counts even when unpaid,
+// because it is already committed and must not be handed out.
 //
 // The server snapshots the figures when the close is taken, so a later
 // back-dated invoice or corrected expense cannot quietly change what partners
@@ -28,16 +33,14 @@ const lastFullMonth = () => {
 export default function ClosingView({ formatPKR }) {
     const [month, setMonth] = useState(lastFullMonth());
     const [parts, setParts] = useState(6);
-    // Cash by default: you can only hand out money you have actually collected.
-    const [basis, setBasis] = useState('cash');
     const [preview, setPreview] = useState(null);
     const [history, setHistory] = useState([]);
     const [busy, setBusy] = useState(false);
     const [notes, setNotes] = useState('');
 
-    const loadPreview = async (m, p, b) => {
+    const loadPreview = async (m, p) => {
         try {
-            const r = await api.get(`/closings/preview?month=${m}&parts=${p}&basis=${b}`);
+            const r = await api.get(`/closings/preview?month=${m}&parts=${p}`);
             setPreview(r.data.data);
         } catch (e) {
             toast.error(e.response?.data?.message || 'Failed to preview');
@@ -52,20 +55,19 @@ export default function ClosingView({ formatPKR }) {
     // Both loaders are async — their setState runs after the awaited request,
     // not synchronously in the effect body, so the rule misfires here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    useEffect(() => { loadPreview(month, parts, basis); }, [month, parts, basis]);
+    useEffect(() => { loadPreview(month, parts); }, [month, parts]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     useEffect(() => { loadHistory(); }, []);
 
     const takeClosing = async () => {
         if (!preview) return;
-        const label = basis === 'cash' ? 'net cash collected' : 'net profit earned';
-        if (!confirm(`Close ${month} and divide ${formatPKR(preview.distributedPKR)} (${label}) into ${parts} share(s)?`)) return;
+        if (!confirm(`Close ${month} and divide ${formatPKR(preview.distributedPKR)} (received − supplier invoices − expenses) into ${parts} share(s)?`)) return;
         setBusy(true);
         try {
-            await api.post('/closings', { month, parts, basis, notes });
+            await api.post('/closings', { month, parts, notes });
             toast.success(`${month} closed`);
             setNotes('');
-            await Promise.all([loadPreview(month, parts, basis), loadHistory()]);
+            await Promise.all([loadPreview(month, parts), loadHistory()]);
         } catch (e) { toast.error(e.response?.data?.message || 'Failed to close'); }
         finally { setBusy(false); }
     };
@@ -75,7 +77,7 @@ export default function ClosingView({ formatPKR }) {
         try {
             await api.delete(`/closings/${row._id}`);
             toast.success(`${row.periodMonth} reopened`);
-            await Promise.all([loadPreview(month, parts, basis), loadHistory()]);
+            await Promise.all([loadPreview(month, parts), loadHistory()]);
         } catch (e) { toast.error(e.response?.data?.message || 'Failed to reopen'); }
     };
 
@@ -95,18 +97,6 @@ export default function ClosingView({ formatPKR }) {
                             onChange={e => setParts(Math.min(50, Math.max(1, parseInt(e.target.value, 10) || 1)))} />
                         <p className="text-[11px] text-gray-500 mt-1">
                             1 office + {partnerCount} partner{partnerCount === 1 ? '' : 's'}
-                        </p>
-                    </div>
-                    <div>
-                        <label className="label text-xs">Divide what?</label>
-                        <select className="select" value={basis} onChange={e => setBasis(e.target.value)}>
-                            <option value="cash">Net cash collected</option>
-                            <option value="accrual">Net profit earned</option>
-                        </select>
-                        <p className="text-[11px] text-gray-500 mt-1">
-                            {basis === 'cash'
-                                ? 'Money actually in — safe to hand out.'
-                                : 'Includes unpaid sales and unpaid bills.'}
                         </p>
                     </div>
                     <div>
@@ -142,34 +132,40 @@ export default function ClosingView({ formatPKR }) {
                         </div>
                     </div>
 
-                    {/* The two measures side by side. They differ whenever a sale
-                        is unpaid or a supplier bill is still outstanding, and the
-                        gap is exactly the risk in distributing on profit. */}
+                    {/* The close, shown as the subtraction it is. */}
                     <div className="card mb-4">
                         <div className="card-body">
                             <h3 className="font-bold text-sm text-navy-800 mb-2">What is available to divide</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div className={`p-3 rounded-lg border-2 ${basis === 'cash' ? 'border-gold-500 bg-gold-50' : 'border-gray-200'}`}>
-                                    <p className="text-xs text-gray-600 font-semibold">Net cash collected</p>
-                                    <p className={`text-xl font-bold ${preview.netCashPKR < 0 ? 'text-red-600' : 'text-navy-800'}`}>{formatPKR(preview.netCashPKR)}</p>
-                                    <p className="text-[11px] text-gray-500 mt-1">
-                                        received {formatPKR(preview.cashInPKR)} − paid to suppliers {formatPKR(preview.supplierPaidPKR)} − expenses {formatPKR(preview.opexPaidPKR)}
-                                    </p>
-                                </div>
-                                <div className={`p-3 rounded-lg border-2 ${basis === 'accrual' ? 'border-gold-500 bg-gold-50' : 'border-gray-200'}`}>
-                                    <p className="text-xs text-gray-600 font-semibold">Net profit earned</p>
-                                    <p className={`text-xl font-bold ${preview.netProfitPKR < 0 ? 'text-red-600' : 'text-navy-800'}`}>{formatPKR(preview.netProfitPKR)}</p>
-                                    <p className="text-[11px] text-gray-500 mt-1">
-                                        billed {formatPKR(preview.revenuePKR)} − supplier invoices {formatPKR(preview.cogsPKR)} − expenses {formatPKR(preview.opexPKR)}
-                                    </p>
-                                </div>
+                            <div className="flex items-center gap-2 flex-wrap text-sm">
+                                <span className="px-3 py-2 rounded-lg bg-green-50 border border-green-200">
+                                    <span className="block text-[11px] text-gray-600">Received from clients</span>
+                                    <b className="text-green-700">{formatPKR(preview.cashInPKR)}</b>
+                                </span>
+                                <span className="text-gray-400 font-bold">−</span>
+                                <span className="px-3 py-2 rounded-lg bg-red-50 border border-red-200">
+                                    <span className="block text-[11px] text-gray-600">Supplier invoices (payable + paid)</span>
+                                    <b className="text-red-600">{formatPKR(preview.cogsPKR)}</b>
+                                </span>
+                                <span className="text-gray-400 font-bold">−</span>
+                                <span className="px-3 py-2 rounded-lg bg-orange-50 border border-orange-200">
+                                    <span className="block text-[11px] text-gray-600">Expenses</span>
+                                    <b className="text-orange-600">{formatPKR(preview.opexPKR)}</b>
+                                </span>
+                                <span className="text-gray-400 font-bold">=</span>
+                                <span className="px-4 py-2 rounded-lg bg-gold-50 border-2 border-gold-500">
+                                    <span className="block text-[11px] text-gray-600">Distributable profit</span>
+                                    <b className={`text-lg ${preview.netReceivedPKR < 0 ? 'text-red-600' : 'text-navy-800'}`}>{formatPKR(preview.netReceivedPKR)}</b>
+                                </span>
                             </div>
-                            {preview.netProfitPKR !== preview.netCashPKR && (
-                                <p className="text-[11px] text-gray-600 mt-2">
-                                    A gap of <strong>{formatPKR(Math.abs(preview.netProfitPKR - preview.netCashPKR))}</strong>{' '}
-                                    {preview.netProfitPKR > preview.netCashPKR
-                                        ? 'has been earned but not yet collected — dividing profit would hand out money you do not hold.'
-                                        : 'was collected beyond what the month earned, likely advances against future travel.'}
+                            <p className="text-[11px] text-gray-500 mt-2">
+                                Only client money actually received counts, but the <strong>full</strong> supplier bill counts
+                                even where it is still unpaid — that money is already committed and must not be handed out.
+                            </p>
+                            {preview.revenuePKR > preview.cashInPKR && (
+                                <p className="text-[11px] text-gray-600 mt-1">
+                                    For reference: <strong>{formatPKR(preview.revenuePKR)}</strong> was billed this month,
+                                    so <strong>{formatPKR(preview.revenuePKR - preview.cashInPKR)}</strong> is still to be collected
+                                    and is not part of this close.
                                 </p>
                             )}
                         </div>
@@ -177,7 +173,7 @@ export default function ClosingView({ formatPKR }) {
 
                     {preview.distributedPKR < 0 && (
                         <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">
-                            This month is negative on the selected basis — closing it records a negative share against every part.
+                            This month is negative — closing it records a negative share against every part.
                         </div>
                     )}
 
@@ -187,7 +183,7 @@ export default function ClosingView({ formatPKR }) {
                                 <h3 className="font-bold text-sm text-navy-800">
                                     Proposed split — {formatPKR(preview.distributedPKR)} over {preview.parts} part{preview.parts === 1 ? '' : 's'}
                                     <span className="ml-2 text-[11px] font-normal text-gray-500">
-                                        ({preview.basis === 'cash' ? 'net cash collected' : 'net profit earned'})
+                                        (received − supplier invoices − expenses)
                                     </span>
                                 </h3>
                                 {preview.alreadyClosed ? (
@@ -248,7 +244,13 @@ export default function ClosingView({ formatPKR }) {
                                     {history.map(h => (
                                         <tr key={h._id}>
                                             <td className="font-mono font-semibold">{h.periodMonth}</td>
-                                            <td className="text-[11px] capitalize text-gray-600">{h.basis || 'accrual'}</td>
+                                            {/* Older closings were taken on a cash or accrual basis; they
+                                                keep their original label so history stays honest. */}
+                                            <td className="text-[11px] text-gray-600">
+                                                {h.basis === 'net_received' || !h.basis
+                                                    ? 'Received − supplier − expenses'
+                                                    : h.basis === 'cash' ? 'Net cash (legacy)' : 'Net profit (legacy)'}
+                                            </td>
                                             <td className="text-right">{formatPKR(h.distributedPKR ?? h.netProfitPKR)}</td>
                                             <td className="text-right">{h.parts}</td>
                                             <td className="text-right">
